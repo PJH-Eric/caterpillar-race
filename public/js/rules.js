@@ -1,0 +1,666 @@
+/* ===== rules.js — 共用規則核心 =====
+ *
+ * 單機、電腦對手、線上三種模式跑的是這一份，不另寫會漂移的第二份。
+ * 瀏覽器用 <script> 載入，伺服器直接 require('./public/js/rules.js')。
+ *
+ * 這支只做「確定性的模擬」：給定同一個 seed、同一串輸入、同樣的 dt，
+ * 一定得到同樣的結果。畫面、聲音、網路、儲存都不在這裡。
+ */
+(function (root, factory) {
+  'use strict';
+  const isNode = (typeof module === 'object' && module.exports);
+  const RNG = isNode ? require('./rng.js') : root.RNG;
+  const Tracks = isNode ? require('./tracks.js') : root.Tracks;
+  const Items = isNode ? require('./items.js') : root.Items;
+  const api = factory(RNG, Tracks, Items);
+  if (isNode) module.exports = api;
+  else root.Rules = api;
+})(typeof self !== 'undefined' ? self : this, function (RNG, Tracks, Items) {
+  'use strict';
+
+  const S = Tracks.SURFACE;
+
+  /* ---------- 常數 ---------- */
+
+  const C = {
+    /* 模擬 */
+    TICK: 1 / 30,              /* 權威迴圈頻率，前端預測也用同一個步長 */
+    COUNTDOWN: 3.0,            /* 開跑前倒數 */
+    FINISH_GRACE: 20.0,        /* 第一名完賽後，其他人還有多久 */
+
+    /* 車體 */
+    BODY_R: 11,                /* 碰撞半徑 */
+    SEG: 7,                    /* 身體節數（畫面用，也決定黏液擺放距離） */
+    SEG_GAP: 9,
+
+    /* 速度 */
+    BASE_SPEED: 250,           /* 跑道上的基礎速度（單位／秒） */
+    ACCEL: 620,
+    BRAKE: 1050,               /* 目標比現在慢時，掉速比加速快 */
+    MAX_BOOST: 0.95,           /* 所有加速加起來的上限 */
+
+    /* 轉向 */
+    TURN: 3.15,                /* 低速時的最大角速度（弧度／秒） */
+    TURN_SPEED_FALLOFF: 0.42,  /* 越快越轉不動 */
+    TURN_PENALTY: 0.12,        /* 轉向中的速度懲罰上限 */
+    /* 轉向慣性：毛毛蟲要花時間才把身體彎過去，不是按下去就瞬間滿舵。
+     * 沒有這一項的話，蠕動衝刺需要的左右交替（0.18～0.55 秒換一次邊）
+     * 每半個循環就會轉掉 40～90 度，扭一下就飛出賽道，機制根本沒辦法用。
+     * 加了之後：快速交替只會畫出小小的 S 形，持續按住才轉得動彎道。 */
+    TURN_ACCEL: 8.5,           /* 角加速度（弧度／秒²），約 0.22 秒到滿舵 */
+    TURN_RELEASE: 11.0,        /* 放開之後回正比較快，免得鬆手還在飄 */
+
+    /* 抓地力：每秒剩下多少橫向速度。越小越黏，越大越滑。 */
+    GRIP: { 0: 0.10, 1: 0.02, 2: 0.03, 3: 0.02 },
+
+    /* 地形速度係數 */
+    SURFACE_SPEED: { 0: 0.65, 1: 1.0, 2: 0.45, 3: 1.0 },
+
+    /* 加速帶 */
+    PAD_TIME: 1.5,
+    PAD_POWER: 0.60,
+
+    /* 蠕動衝刺 */
+    WIGGLE: {
+      MIN: 0.12,               /* 比這更快＝亂按，歸零 */
+      SWEET_LO: 0.18,
+      SWEET_HI: 0.55,
+      NEED: 4,
+      TIME: 1.2,
+      POWER: 0.45
+    },
+
+    /* 碰撞 */
+    WALL_KEEP: 0.35,           /* 撞牆後速度剩多少 */
+    BUMP_KEEP: 0.80,           /* 撞到其他毛毛蟲後速度剩多少 */
+
+    /* 道具 */
+    LEAF_R: 26,                /* 撿道具葉的判定半徑 */
+    LEAF_RESPAWN: 8.0,
+    GOO_R: 22,
+    ITEM_COOLDOWN: 0.35        /* 用完道具到能再撿的間隔，避免同一 tick 連撿 */
+  };
+
+  /* 四段難度。差別在速度上限、走線精度、反應延遲與蠕動節奏，不是只改名字。 */
+  const DIFFICULTY = {
+    baby:   { id: 'baby',   name: '幼幼班', cap: 0.78, lineErr: 0.55, react: 2.2, wiggle: 0.15, avoid: 0.0,  useBad: false, mercy: true },
+    easy:   { id: 'easy',   name: '簡單',   cap: 0.86, lineErr: 0.34, react: 1.2, wiggle: 0.35, avoid: 0.15, useBad: true,  mercy: false },
+    normal: { id: 'normal', name: '普通',   cap: 0.95, lineErr: 0.16, react: 0.5, wiggle: 0.70, avoid: 0.55, useBad: true,  mercy: false },
+    hard:   { id: 'hard',   name: '困難',   cap: 1.00, lineErr: 0.10, react: 0.15, wiggle: 0.95, avoid: 0.90, useBad: true,  mercy: false }
+  };
+  const DIFFICULTY_LIST = ['baby', 'easy', 'normal', 'hard'];
+
+  /* ---------- 小工具 ---------- */
+
+  function moveToward(v, target, rate) {
+    if (v < target) return Math.min(target, v + rate);
+    return Math.max(target, v - rate);
+  }
+  function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+  /* ---------- 建立一局 ---------- */
+
+  /**
+   * @param {object} opt
+   *   track     Tracks.get() 產出的賽道
+   *   racers    [{ id, name, char, kind:'human'|'ai', difficulty }]
+   *   laps      圈數（不給就用賽道預設）
+   *   seed      亂數種子
+   *   allowBad  是否開放負面道具
+   */
+  function createRace(opt) {
+    const track = opt.track;
+    const laps = opt.laps || track.laps;
+    const seed = opt.seed || RNG.newSeed();
+    const N = track.nodes.length;
+
+    const racers = (opt.racers || []).map((r, i) => {
+      const start = track.starts[i % track.starts.length];
+      return {
+        id: r.id,
+        name: r.name || ('毛毛蟲' + (i + 1)),
+        char: r.char || 'lime',
+        kind: r.kind || 'human',
+        difficulty: r.difficulty || 'normal',
+        seat: i,
+
+        x: start.x, y: start.y, angle: start.angle,
+        vx: 0, vy: 0, speed: 0,
+        turnVel: 0,              /* 現在的角速度，有慣性 */
+
+        node: start.node,
+        cp: Tracks.checkpointOf(track, start.node),
+        cpCount: 0,              /* 累計通過的檢查點數（可正可負），圈數由它算出來 */
+        lap: 0,
+        started: false,          /* 有沒有越過起跑線開始計第一圈 */
+        lapStart: 0,
+        lapTimes: [],
+        progress: 0,             /* 排名用的累積進度 */
+        rank: i + 1,
+        finished: false,
+        finishTime: 0,
+
+        wiggle: { dir: 0, beats: 0, lastFlip: -9, until: 0 },
+        padUntil: 0,
+        juiceUntil: 0,
+        slowUntil: 0, slowPower: 0,
+        shieldUntil: 0,
+        hopUntil: 0,
+        tinyUntil: 0,
+
+        item: null,
+        itemReadyAt: 0,
+
+        capScale: 1,             /* 幼幼班電腦在玩家落後太多時會放慢 */
+        ghost: false,            /* 掉線時幽靈化：半透明、不參與碰撞 */
+        connected: true,
+        disconnectedAt: 0,
+
+        stats: { hits: 0, wiggleBoosts: 0, pads: 0, itemsUsed: 0, itemHits: 0, offTrack: 0 }
+      };
+    });
+
+    const leaves = track.items.map(it => ({ x: it.x, y: it.y, node: it.node, readyAt: 0 }));
+
+    return {
+      seed,
+      rng: RNG.create(seed),
+      track,
+      laps,
+      allowBad: opt.allowBad !== false,
+      trackNodes: N,
+
+      t: 0,                      /* 含倒數的總時間 */
+      raceT: 0,                  /* 開跑之後的比賽時間 */
+      phase: 'countdown',        /* countdown → racing → finished */
+      firstFinishAt: 0,
+
+      racers,
+      leaves,
+      goo: [],
+      webs: [],                  /* 只是給畫面畫一下的蜘蛛絲，不影響模擬 */
+      events: []                 /* 這一 tick 發生的事，畫面與音效自己撈 */
+    };
+  }
+
+  /* ---------- 速度與地形 ---------- */
+
+  function surfaceFor(state, r) {
+    /* 葉子小飛期間飄在空中，什麼地形都踩不到 */
+    if (state.t < r.hopUntil) return S.TRACK;
+    return Tracks.surfaceAt(state.track, r.x, r.y);
+  }
+
+  function speedFactor(state, r, surface, steer) {
+    const d = DIFFICULTY[r.difficulty] || DIFFICULTY.normal;
+    let f = C.SURFACE_SPEED[surface];
+
+    /* 果汁加速期間不怕減速地形 */
+    if (state.t < r.juiceUntil && f < 1) f = 1;
+
+    let boost = 0;
+    if (state.t < r.juiceUntil) boost += Items.ITEMS.juice.power;
+    if (state.t < r.padUntil) boost += C.PAD_POWER;
+    if (state.t < r.wiggle.until) boost += C.WIGGLE.POWER;
+    f *= (1 + Math.min(C.MAX_BOOST, boost));
+
+    if (state.t < r.slowUntil) f *= (1 - r.slowPower);
+    if (state.t < r.tinyUntil) f *= (1 - Items.ITEMS.tiny.power);
+
+    /* 轉向懲罰：越快轉越痛 */
+    const ratio = clamp(r.speed / C.BASE_SPEED, 0, 1.6);
+    if (steer) f *= (1 - C.TURN_PENALTY * Math.min(1, ratio));
+
+    /* 電腦對手的速度上限；真人一律 1.0。capScale 給幼幼班的「等一下玩家」用。 */
+    if (r.kind === 'ai') f *= d.cap * (r.capScale || 1);
+    return f;
+  }
+
+  /* ---------- 蠕動衝刺 ---------- */
+
+  function updateWiggle(state, r, steer) {
+    const w = r.wiggle;
+    const cfg = C.WIGGLE;
+    const d = (r.kind === 'ai' ? DIFFICULTY.normal : DIFFICULTY[r.difficulty]) || DIFFICULTY.normal;
+    /* 幼幼班放寬：門檻低一點、區間寬一點、衝刺久一點 */
+    const baby = r.kind === 'human' && r.difficulty === 'baby';
+    const need = baby ? 3 : cfg.NEED;
+    const lo = baby ? 0.15 : cfg.SWEET_LO;
+    const hi = baby ? 0.75 : cfg.SWEET_HI;
+    const time = baby ? 1.6 : cfg.TIME;
+
+    if (steer === 0 || steer === w.dir) {
+      /* 太久沒換向就洩氣 */
+      if (w.beats > 0 && state.t - w.lastFlip > hi) w.beats = 0;
+      return;
+    }
+    const gap = state.t - w.lastFlip;
+    w.dir = steer;
+    w.lastFlip = state.t;
+
+    if (gap < cfg.MIN) { w.beats = 0; return; }          /* 亂按，歸零 */
+    if (gap < lo || gap > hi) { w.beats = 1; return; }   /* 節奏沒抓到，從頭算 */
+
+    w.beats++;
+    if (w.beats >= need) {
+      w.beats = 0;
+      w.until = state.t + time;
+      r.stats.wiggleBoosts++;
+      state.events.push({ type: 'wiggle', id: r.id });
+    }
+  }
+
+  /* ---------- 道具 ---------- */
+
+  function rankOf(state, id) {
+    const r = state.racers.find(x => x.id === id);
+    return r ? r.rank : 1;
+  }
+
+  function useItem(state, r) {
+    if (!r.item || r.finished) return;
+    const id = r.item;
+    const def = Items.ITEMS[id];
+    r.item = null;
+    r.itemReadyAt = state.t + C.ITEM_COOLDOWN;
+    r.stats.itemsUsed++;
+    state.events.push({ type: 'use', id: r.id, item: id });
+
+    if (id === 'juice') {
+      r.juiceUntil = state.t + def.duration;
+    } else if (id === 'shield') {
+      r.shieldUntil = state.t + def.duration;
+    } else if (id === 'hop') {
+      r.hopUntil = state.t + def.duration;
+    } else if (id === 'goo') {
+      const hx = Math.cos(r.angle), hy = Math.sin(r.angle);
+      for (let i = 0; i < def.blobs; i++) {
+        const back = (i + 1) * (C.SEG_GAP * 2.2);
+        state.goo.push({
+          x: r.x - hx * back, y: r.y - hy * back,
+          owner: r.id, until: state.t + def.life
+        });
+      }
+    } else if (id === 'web') {
+      const target = nearestAhead(state, r, def.range);
+      if (target) {
+        if (!applySlow(state, target, def.duration, def.power, r)) {
+          /* 被泡泡擋掉了，蜘蛛絲就當作打在泡泡上 */
+        }
+        /* 自己往前竄一小段（拉近距離） */
+        r.vx += Math.cos(r.angle) * C.BASE_SPEED * def.pull;
+        r.vy += Math.sin(r.angle) * C.BASE_SPEED * def.pull;
+        state.webs.push({ from: r.id, to: target.id, until: state.t + 0.4 });
+      } else {
+        state.events.push({ type: 'miss', id: r.id, item: id });
+      }
+    } else if (id === 'tiny') {
+      /* 打現在的第一名；自己就是第一名的話打第二名 */
+      let target = null;
+      for (const o of state.racers) {
+        if (o.finished || o.ghost) continue;
+        if (o.id === r.id) continue;
+        if (!target || o.rank < target.rank) target = o;
+      }
+      if (target && rankOf(state, r.id) !== 1) {
+        const leader = state.racers.filter(o => !o.finished && !o.ghost && o.id !== r.id)
+          .sort((a, b) => a.rank - b.rank)[0];
+        target = leader || target;
+      }
+      if (target) {
+        if (state.t < target.shieldUntil) {
+          target.shieldUntil = 0;
+          state.events.push({ type: 'blocked', id: target.id, by: r.id, item: id });
+        } else {
+          target.tinyUntil = state.t + def.duration;
+          r.stats.itemHits++;
+          state.events.push({ type: 'hit', id: target.id, by: r.id, item: id });
+        }
+      } else {
+        state.events.push({ type: 'miss', id: r.id, item: id });
+      }
+    }
+  }
+
+  /** 前方最近的一位（依進度，不是依直線距離，8 字型賽道才不會打到對面的人） */
+  function nearestAhead(state, r, range) {
+    let best = null, bestGap = Infinity;
+    for (const o of state.racers) {
+      if (o.id === r.id || o.finished || o.ghost) continue;
+      const gap = o.progress - r.progress;
+      if (gap <= 0) continue;
+      const dist = gap * Tracks.NODE_STEP;
+      if (dist > range) continue;
+      if (dist < bestGap) { bestGap = dist; best = o; }
+    }
+    return best;
+  }
+
+  /**
+   * 套用減速。被泡泡擋下回傳 false。
+   * @returns {boolean} 有沒有真的打中
+   */
+  function applySlow(state, target, duration, power, from) {
+    if (state.t < target.hopUntil) {
+      state.events.push({ type: 'dodge', id: target.id });
+      return false;
+    }
+    if (state.t < target.shieldUntil) {
+      target.shieldUntil = 0;
+      state.events.push({ type: 'blocked', id: target.id, by: from ? from.id : null });
+      return false;
+    }
+    /* 已經在減速就取比較重的那個，不疊加 */
+    if (state.t < target.slowUntil && target.slowPower >= power) {
+      target.slowUntil = Math.max(target.slowUntil, state.t + duration);
+    } else {
+      target.slowUntil = state.t + duration;
+      target.slowPower = power;
+    }
+    if (from) from.stats.itemHits++;
+    state.events.push({ type: 'hit', id: target.id, by: from ? from.id : null });
+    return true;
+  }
+
+  /* ---------- 碰撞 ---------- */
+
+  function bounceCircle(r, cx, cy, radius) {
+    const dx = r.x - cx, dy = r.y - cy;
+    const dist = Math.hypot(dx, dy) || 0.0001;
+    const overlap = radius + C.BODY_R - dist;
+    if (overlap <= 0) return false;
+    const nx = dx / dist, ny = dy / dist;
+    r.x += nx * overlap;
+    r.y += ny * overlap;
+    const dot = r.vx * nx + r.vy * ny;
+    if (dot < 0) {
+      r.vx -= 2 * dot * nx;
+      r.vy -= 2 * dot * ny;
+    }
+    r.vx *= C.WALL_KEEP;
+    r.vy *= C.WALL_KEEP;
+    return true;
+  }
+
+  function collide(state, r) {
+    let hit = false;
+    for (const rock of state.track.rocks) {
+      if (bounceCircle(r, rock.x, rock.y, rock.r)) hit = true;
+    }
+    const b = state.track.bounds;
+    if (r.x < b.minX + C.BODY_R) { r.x = b.minX + C.BODY_R; r.vx = Math.abs(r.vx) * C.WALL_KEEP; hit = true; }
+    if (r.x > b.maxX - C.BODY_R) { r.x = b.maxX - C.BODY_R; r.vx = -Math.abs(r.vx) * C.WALL_KEEP; hit = true; }
+    if (r.y < b.minY + C.BODY_R) { r.y = b.minY + C.BODY_R; r.vy = Math.abs(r.vy) * C.WALL_KEEP; hit = true; }
+    if (r.y > b.maxY - C.BODY_R) { r.y = b.maxY - C.BODY_R; r.vy = -Math.abs(r.vy) * C.WALL_KEEP; hit = true; }
+    if (hit) {
+      r.stats.hits++;
+      state.events.push({ type: 'wall', id: r.id });
+    }
+  }
+
+  /** 毛毛蟲互相推擠：不會撞死人，只是互相擠開並各掉一點速 */
+  function bumpRacers(state) {
+    const list = state.racers;
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i];
+      if (a.ghost || a.finished) continue;
+      for (let j = i + 1; j < list.length; j++) {
+        const b = list[j];
+        if (b.ghost || b.finished) continue;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy);
+        const min = C.BODY_R * 2;
+        if (dist >= min || dist < 1e-6) continue;
+        const nx = dx / dist, ny = dy / dist;
+        const push = (min - dist) / 2;
+        a.x -= nx * push; a.y -= ny * push;
+        b.x += nx * push; b.y += ny * push;
+        a.vx *= C.BUMP_KEEP; a.vy *= C.BUMP_KEEP;
+        b.vx *= C.BUMP_KEEP; b.vy *= C.BUMP_KEEP;
+        state.events.push({ type: 'bump', id: a.id, other: b.id });
+      }
+    }
+  }
+
+  /* ---------- 進度與計圈 ---------- */
+
+  function updateProgress(state, r) {
+    const track = state.track;
+    const N = state.trackNodes;
+    const prev = r.node;
+    r.node = Tracks.nodeAt(track, r.x, r.y, prev);
+
+    /* 計圈用「累計通過幾個檢查點」而不是「越過幾次終點線」。
+     *
+     * 只看終點線的話，在線前後來回開就能一直加圈：
+     * 往回越線只是把檢查點退回去，往前再越一次又算一圈，圈數就被刷出來了。
+     * 改成累計之後，來回一次是 +1 -1，剛好抵銷，只有真的繞完一圈才會進位。 */
+    const CP = track.checkpoints;
+    const cp = Tracks.checkpointOf(track, r.node);
+    if (cp === (r.cp + 1) % CP) { r.cp = cp; r.cpCount++; }
+    else if (cp === (r.cp - 1 + CP) % CP) { r.cp = cp; r.cpCount--; }
+
+    if (r.cpCount >= 1 && !r.started) {
+      r.started = true;
+      r.lapStart = state.raceT;
+    }
+    const lap = Math.max(0, Math.floor(r.cpCount / CP));
+    if (lap > r.lap) {
+      r.lap = lap;
+      r.lapTimes.push(state.raceT - r.lapStart);
+      r.lapStart = state.raceT;
+      state.events.push({ type: 'lap', id: r.id, lap: r.lap });
+      if (r.lap >= state.laps && !r.finished) finish(state, r);
+    } else if (lap < r.lap) {
+      /* 倒退回去就把圈數收回來，記到一半的單圈時間也一起丟掉 */
+      r.lap = lap;
+      r.lapTimes.length = Math.min(r.lapTimes.length, lap);
+    }
+
+    r.progress = (r.started ? r.lap : -1) * N + r.node;
+  }
+
+  function finish(state, r) {
+    r.finished = true;
+    r.finishTime = state.raceT;
+    if (!state.firstFinishAt) state.firstFinishAt = state.raceT;
+    state.events.push({ type: 'finish', id: r.id, time: r.finishTime });
+  }
+
+  function updateRanks(state) {
+    const sorted = state.racers.slice().sort((a, b) => {
+      if (a.finished !== b.finished) return a.finished ? -1 : 1;
+      if (a.finished && b.finished) return a.finishTime - b.finishTime;
+      if (a.ghost !== b.ghost) return a.ghost ? 1 : -1;
+      return b.progress - a.progress;
+    });
+    for (let i = 0; i < sorted.length; i++) sorted[i].rank = i + 1;
+  }
+
+  /* ---------- 一個 tick ---------- */
+
+  /**
+   * @param {object} state
+   * @param {object} inputs  { [racerId]: { steer: -1|0|1, use: boolean } }
+   * @param {number} dt      秒；不給就用 C.TICK
+   */
+  function step(state, inputs, dt) {
+    dt = dt || C.TICK;
+    state.events.length = 0;
+    state.t += dt;
+
+    if (state.phase === 'countdown') {
+      if (state.t >= C.COUNTDOWN) {
+        state.phase = 'racing';
+        state.events.push({ type: 'go' });
+      } else {
+        return state;
+      }
+    }
+    if (state.phase === 'finished') return state;
+
+    state.raceT = state.t - C.COUNTDOWN;
+
+    /* 過期的黏液與蜘蛛絲 */
+    for (let i = state.goo.length - 1; i >= 0; i--) if (state.goo[i].until <= state.t) state.goo.splice(i, 1);
+    for (let i = state.webs.length - 1; i >= 0; i--) if (state.webs[i].until <= state.t) state.webs.splice(i, 1);
+
+    for (const r of state.racers) {
+      if (r.finished || r.ghost) continue;
+      const input = (inputs && inputs[r.id]) || { steer: 0, use: false };
+      const steer = clamp(Math.round(input.steer || 0), -1, 1);
+
+      if (input.use && r.item && state.t >= 0) useItem(state, r);
+
+      updateWiggle(state, r, steer);
+
+      /* 轉向：越快越轉不動，而且角速度有慣性 */
+      const ratio = clamp(r.speed / C.BASE_SPEED, 0, 1.6);
+      const turn = C.TURN * (1 - C.TURN_SPEED_FALLOFF * Math.min(1, ratio));
+      const wantTurn = steer * turn;
+      const turnRate = (steer === 0 ? C.TURN_RELEASE : C.TURN_ACCEL) * dt;
+      r.turnVel = moveToward(r.turnVel, wantTurn, turnRate);
+      r.angle += r.turnVel * dt;
+      if (r.angle > Math.PI) r.angle -= Math.PI * 2;
+      if (r.angle < -Math.PI) r.angle += Math.PI * 2;
+
+      /* 地形 */
+      const surface = surfaceFor(state, r);
+      if (surface === S.BOOST) {
+        if (state.t >= r.padUntil - C.PAD_TIME + 0.4) r.stats.pads++;
+        r.padUntil = state.t + C.PAD_TIME;
+        state.events.push({ type: 'pad', id: r.id });
+      }
+      if (surface === S.GRASS) r.stats.offTrack++;
+
+      /* 把速度拆成「朝向前方」與「橫向滑移」兩份 */
+      const hx = Math.cos(r.angle), hy = Math.sin(r.angle);
+      let vLong = r.vx * hx + r.vy * hy;
+      let vLat = r.vx * (-hy) + r.vy * hx;
+
+      const target = C.BASE_SPEED * speedFactor(state, r, surface, steer);
+      const rate = (vLong < target ? C.ACCEL : C.BRAKE) * dt;
+      vLong = moveToward(vLong, target, rate);
+
+      /* 抓地力吃掉橫向速度；草地上吃得慢，所以會滑出去 */
+      const grip = C.GRIP[state.t < r.hopUntil ? S.TRACK : surface];
+      vLat *= Math.pow(grip, dt);
+
+      r.vx = hx * vLong - hy * vLat;
+      r.vy = hy * vLong + hx * vLat;
+      r.speed = Math.hypot(r.vx, r.vy);
+
+      r.x += r.vx * dt;
+      r.y += r.vy * dt;
+
+      /* 飄在空中就不撞石頭 */
+      if (state.t >= r.hopUntil) collide(state, r);
+
+      /* 黏液 */
+      if (state.t >= r.hopUntil) {
+        for (const g of state.goo) {
+          if (g.owner === r.id && state.t - (g.until - Items.ITEMS.goo.life) < 1.2) continue;
+          if (Math.hypot(r.x - g.x, r.y - g.y) < C.GOO_R + C.BODY_R) {
+            if (applySlow(state, r, Items.ITEMS.goo.duration, Items.ITEMS.goo.power, null)) {
+              state.events.push({ type: 'goo', id: r.id });
+            }
+            break;
+          }
+        }
+      }
+
+      /* 道具葉 */
+      if (!r.item && state.t >= r.itemReadyAt) {
+        for (const leaf of state.leaves) {
+          if (state.t < leaf.readyAt) continue;
+          if (Math.hypot(r.x - leaf.x, r.y - leaf.y) < C.LEAF_R + C.BODY_R) {
+            leaf.readyAt = state.t + C.LEAF_RESPAWN;
+            r.item = Items.draw(state.rng, r.rank, state.racers.length, state.allowBad && allowBadFor(r));
+            state.events.push({ type: 'pick', id: r.id, item: r.item });
+            break;
+          }
+        }
+      }
+
+      updateProgress(state, r);
+    }
+
+    bumpRacers(state);
+    updateRanks(state);
+
+    /* 全員完賽，或第一名完賽超過寬限時間，就收局 */
+    const alive = state.racers.filter(r => !r.finished && !r.ghost);
+    if (!alive.length || (state.firstFinishAt && state.raceT - state.firstFinishAt > C.FINISH_GRACE)) {
+      state.phase = 'finished';
+      for (const r of state.racers) if (!r.finished) { r.finishTime = state.raceT; }
+      updateRanks(state);
+      state.events.push({ type: 'over' });
+    }
+    return state;
+  }
+
+  /** 幼幼班的電腦不丟負面道具（規劃書 §4.2／§5） */
+  function allowBadFor(r) {
+    if (r.kind !== 'ai') return true;
+    const d = DIFFICULTY[r.difficulty] || DIFFICULTY.normal;
+    return d.useBad;
+  }
+
+  /* ---------- 線上用的輔助 ---------- */
+
+  /** 掉線：幽靈化，停在原地且不參與碰撞，位置保留 */
+  function markGhost(state, id, on) {
+    const r = state.racers.find(x => x.id === id);
+    if (!r) return;
+    r.ghost = !!on;
+    r.connected = !on;
+    if (on) { r.vx = 0; r.vy = 0; r.speed = 0; r.turnVel = 0; }
+  }
+
+  /** 給前端畫面與 Summary 用的精簡快照 */
+  function snapshot(state) {
+    return {
+      t: +state.t.toFixed(3),
+      raceT: +state.raceT.toFixed(3),
+      phase: state.phase,
+      laps: state.laps,
+      racers: state.racers.map(r => ({
+        id: r.id, x: +r.x.toFixed(2), y: +r.y.toFixed(2), a: +r.angle.toFixed(3),
+        sp: +r.speed.toFixed(1), tv: +r.turnVel.toFixed(3), lap: r.lap, cp: r.cp, rank: r.rank,
+        item: r.item, beats: r.wiggle.beats,
+        wig: r.wiggle.until > state.t ? 1 : 0,
+        boost: (r.juiceUntil > state.t || r.padUntil > state.t) ? 1 : 0,
+        slow: r.slowUntil > state.t ? 1 : 0,
+        shield: r.shieldUntil > state.t ? 1 : 0,
+        hop: r.hopUntil > state.t ? 1 : 0,
+        tiny: r.tinyUntil > state.t ? 1 : 0,
+        fin: r.finished ? 1 : 0, ft: +r.finishTime.toFixed(2),
+        ghost: r.ghost ? 1 : 0
+      })),
+      goo: state.goo.map(g => ({ x: Math.round(g.x), y: Math.round(g.y) })),
+      leaves: state.leaves.map(l => (state.t >= l.readyAt ? 1 : 0)),
+      webs: state.webs.map(w => ({ from: w.from, to: w.to }))
+    };
+  }
+
+  /** 結算：名次、完成時間、最佳單圈、統計 */
+  function results(state) {
+    return state.racers.slice().sort((a, b) => a.rank - b.rank).map(r => ({
+      id: r.id, name: r.name, char: r.char, kind: r.kind, difficulty: r.difficulty,
+      rank: r.rank,
+      finished: r.finished,
+      time: +r.finishTime.toFixed(2),
+      laps: r.lap,
+      bestLap: r.lapTimes.length ? +Math.min.apply(null, r.lapTimes).toFixed(2) : 0,
+      lapTimes: r.lapTimes.map(v => +v.toFixed(2)),
+      stats: r.stats
+    }));
+  }
+
+  return {
+    C, DIFFICULTY, DIFFICULTY_LIST,
+    createRace, step, snapshot, results,
+    useItem, applySlow, updateRanks, updateProgress, markGhost,
+    nearestAhead, speedFactor, surfaceFor, moveToward, clamp
+  };
+});

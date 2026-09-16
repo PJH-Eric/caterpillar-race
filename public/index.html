@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#8FD46A">
+<meta name="description" content="毛毛蟲賽車 —— 左右兩顆鍵，扭出速度。八隻可愛毛毛蟲、六張賽道、蠕動衝刺。">
+<title>毛毛蟲賽車</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='22' cy='16' r='7' fill='%238BD44A'/%3E%3Ccircle cx='13' cy='17' r='6' fill='%237CC63E'/%3E%3Ccircle cx='6' cy='18' r='5' fill='%236BB62F'/%3E%3Ccircle cx='20' cy='14' r='1.8' fill='%23222'/%3E%3Ccircle cx='25' cy='14' r='1.8' fill='%23222'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body data-screen="home">
+
+<!-- ===== 右上角設定（所有主要畫面共用同一顆） ===== -->
+<button id="btn-gear" class="gear" type="button" aria-label="設定" title="設定"></button>
+
+<!-- ===== 首頁 ===== -->
+<section id="screen-home" class="screen" aria-label="首頁">
+  <div class="home-wrap">
+    <div class="home-art" id="home-art" aria-hidden="true"></div>
+    <h1 class="title">毛毛蟲賽車</h1>
+    <p class="tagline">左右兩顆鍵，扭出速度</p>
+    <nav class="home-buttons">
+      <button class="big-btn primary" id="go-solo" type="button">
+        <span class="b-title">一個人玩</span>
+        <span class="b-sub">跟電腦比賽，或自己練賽道</span>
+      </button>
+      <button class="big-btn" id="go-online" type="button">
+        <span class="b-title">跟別人玩</span>
+        <span class="b-sub">最多 6 隻毛毛蟲同場競速</span>
+      </button>
+      <button class="big-btn ghost" id="go-help" type="button">
+        <span class="b-title">怎麼玩</span>
+        <span class="b-sub">30 秒看懂蠕動衝刺</span>
+      </button>
+    </nav>
+    <p class="build-note" id="build-note"></p>
+  </div>
+</section>
+
+<!-- ===== 單機設定 ===== -->
+<section id="screen-setup" class="screen" hidden aria-label="開始一局">
+  <header class="bar">
+    <button class="back" id="setup-back" type="button">回首頁</button>
+    <h2>一個人玩</h2>
+  </header>
+  <div class="setup-body">
+    <section class="panel">
+      <h3>選一隻毛毛蟲</h3>
+      <div class="char-grid" id="char-grid" role="radiogroup" aria-label="選角色"></div>
+      <label class="field">
+        <span>你的名字</span>
+        <input id="nickname" type="text" maxlength="8" placeholder="不填就隨機取一個" autocomplete="off">
+      </label>
+    </section>
+
+    <section class="panel">
+      <h3>選賽道</h3>
+      <div class="track-grid" id="track-grid" role="radiogroup" aria-label="選賽道"></div>
+    </section>
+
+    <section class="panel">
+      <h3>電腦對手</h3>
+      <div class="counter">
+        <button class="round" id="ai-minus" type="button" aria-label="減少電腦對手">−</button>
+        <output id="ai-count" aria-live="polite">3</output>
+        <button class="round" id="ai-plus" type="button" aria-label="增加電腦對手">＋</button>
+        <span class="counter-note">0～5 個</span>
+      </div>
+      <div class="diff-row" id="diff-row" role="radiogroup" aria-label="電腦難度"></div>
+      <p class="hint" id="diff-hint"></p>
+    </section>
+  </div>
+  <footer class="bar bottom">
+    <p class="best" id="setup-best"></p>
+    <button class="big-btn primary go" id="start-race" type="button">開跑！</button>
+  </footer>
+</section>
+
+<!-- ===== 怎麼玩 ===== -->
+<section id="screen-help" class="screen" hidden aria-label="怎麼玩">
+  <header class="bar">
+    <button class="back" id="help-back" type="button">回首頁</button>
+    <h2>怎麼玩</h2>
+  </header>
+  <div class="help-body" id="help-body"></div>
+</section>
+
+<!-- ===== 線上大廳 ===== -->
+<section id="screen-lobby" class="screen" hidden aria-label="線上大廳">
+  <header class="bar">
+    <button class="back" id="lobby-back" type="button">回首頁</button>
+    <h2>跟別人玩</h2>
+    <span class="conn" id="lobby-conn"></span>
+  </header>
+  <div class="lobby-body">
+    <div class="lobby-actions">
+      <button class="big-btn primary" id="quick-join" type="button">
+        <span class="b-title">快速加入</span>
+        <span class="b-sub">沒有房間就幫你開一間</span>
+      </button>
+      <button class="big-btn" id="create-room" type="button">
+        <span class="b-title">自己開一間</span>
+        <span class="b-sub">可以選賽道和人數</span>
+      </button>
+    </div>
+    <h3>現在的房間</h3>
+    <div class="room-list" id="room-list" aria-live="polite"></div>
+  </div>
+</section>
+
+<!-- ===== 房間 ===== -->
+<section id="screen-room" class="screen" hidden aria-label="房間">
+  <header class="bar">
+    <button class="back" id="room-back" type="button">離開房間</button>
+    <h2 id="room-title">房間</h2>
+    <span class="conn" id="room-conn"></span>
+  </header>
+  <div class="room-body">
+    <section class="panel">
+      <h3>玩家席位 <small id="seat-count"></small></h3>
+      <div class="seat-list" id="seat-list"></div>
+      <div class="room-owner-only" id="room-owner-only" hidden>
+        <label class="field inline"><span>賽道</span><select id="room-track"></select></label>
+        <label class="field inline"><span>圈數</span><select id="room-laps"></select></label>
+        <label class="field inline"><span>人數上限</span><select id="room-seats"></select></label>
+        <label class="field check"><input type="checkbox" id="room-bad"><span>開放負面道具</span></label>
+      </div>
+      <div class="room-buttons">
+        <button class="big-btn primary" id="room-ready" type="button">我準備好了</button>
+        <button class="big-btn" id="room-invite" type="button">複製邀請連結</button>
+      </div>
+      <p class="hint" id="room-hint"></p>
+    </section>
+    <section class="panel">
+      <h3>觀戰席 <small id="spec-count"></small></h3>
+      <div class="spec-list" id="spec-list"></div>
+      <button class="big-btn ghost" id="room-switch" type="button">換到觀戰席</button>
+    </section>
+    <section class="panel room-chat">
+      <h3>聊天室</h3>
+      <ol class="chat-log" id="room-chat-log" aria-live="polite"></ol>
+      <div class="chat-quick" id="room-chat-quick"></div>
+      <form class="chat-form" id="room-chat-form">
+        <input id="room-chat-input" type="text" maxlength="40" placeholder="說點什麼" autocomplete="off">
+        <button type="submit">送出</button>
+      </form>
+    </section>
+  </div>
+</section>
+
+<!-- ===== 比賽中 ===== -->
+<section id="screen-race" class="screen race" hidden aria-label="比賽中">
+  <canvas id="stage" aria-label="賽道畫面"></canvas>
+
+  <!-- 左側：操作 Summary（刻意做小，賽道盡量大） -->
+  <aside id="summary" class="summary" aria-live="polite">
+    <button class="sum-toggle" id="sum-toggle" type="button" aria-expanded="true">資訊</button>
+    <div class="sum-body" id="sum-body">
+      <div class="sum-top">
+        <div class="sum-rank"><b id="my-rank">1</b><span id="my-rank-total">/4</span></div>
+        <div class="sum-lap"><b id="my-lap">1</b><span id="my-lap-total">/3</span> 圈</div>
+      </div>
+      <div class="sum-time"><span id="lap-time">0.00</span><small>本圈</small></div>
+      <div class="wiggle-gauge" id="wiggle-gauge" aria-label="蠕動槽"></div>
+      <div class="sum-item" id="sum-item"></div>
+      <ol class="standings" id="standings"></ol>
+      <p class="sum-note" id="sum-note"></p>
+    </div>
+  </aside>
+
+  <!-- 左下：聊天室（線上才出現） -->
+  <div id="chat-dock" class="chat-dock" hidden>
+    <button class="chat-toggle" id="chat-toggle" type="button" aria-expanded="false">
+      聊天<span class="unread" id="chat-unread" hidden>0</span>
+    </button>
+    <div class="chat-panel" id="chat-panel" hidden>
+      <ol class="chat-log" id="chat-log" aria-live="polite"></ol>
+      <div class="chat-quick" id="chat-quick"></div>
+      <form class="chat-form" id="chat-form">
+        <input id="chat-input" type="text" maxlength="40" placeholder="說點什麼" autocomplete="off">
+        <button type="submit">送出</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 右上：小地圖（鏡頭會轉，需要一張不轉的圖來定位） -->
+  <div class="minimap" id="minimap"><canvas id="mini" width="120" height="120"></canvas></div>
+
+  <!-- 觸控操作 -->
+  <div class="touch" id="touch">
+    <button class="tbtn left" id="btn-left" type="button" aria-label="左轉"></button>
+    <button class="tbtn item" id="btn-item" type="button" aria-label="使用道具"><span class="tbtn-item-slot" id="item-slot"></span></button>
+    <button class="tbtn right" id="btn-right" type="button" aria-label="右轉"></button>
+  </div>
+
+  <div class="countdown" id="countdown" hidden aria-live="assertive"></div>
+  <div class="toast-wrap" id="toast-wrap" aria-live="polite"></div>
+  <div class="rotate-tip" id="rotate-tip" hidden>
+    <p>轉成橫向更好玩</p>
+    <button type="button" id="rotate-ok">知道了</button>
+  </div>
+</section>
+
+<!-- ===== 結算 ===== -->
+<section id="screen-result" class="screen" hidden aria-label="結算">
+  <div class="result-wrap">
+    <div class="winner" id="winner"></div>
+    <h2 id="result-title">比賽結束</h2>
+    <ol class="result-list" id="result-list"></ol>
+    <section class="panel stats">
+      <h3>這局統計</h3>
+      <ul id="result-stats"></ul>
+    </section>
+    <div class="result-buttons">
+      <button class="big-btn primary" id="again" type="button">再來一局</button>
+      <button class="big-btn" id="result-home" type="button">回首頁</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 設定 Modal ===== -->
+<div class="modal" id="modal-settings" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title">
+  <div class="modal-mask" data-close></div>
+  <div class="modal-box">
+    <header>
+      <h2 id="settings-title">設定</h2>
+      <button class="icon-btn" id="settings-close" type="button" aria-label="關閉設定"></button>
+    </header>
+    <div class="modal-body">
+      <section class="set-group">
+        <h3><i data-icon="sound"></i>聲音</h3>
+        <label class="row"><span>背景音樂</span><input type="checkbox" id="set-bgm"></label>
+        <label class="row"><span>音樂音量</span><input type="range" id="set-bgm-vol" min="0" max="100" step="5"></label>
+        <label class="row"><span>音效</span><input type="checkbox" id="set-sfx"></label>
+        <label class="row"><span>音效音量</span><input type="range" id="set-sfx-vol" min="0" max="100" step="5"></label>
+      </section>
+      <section class="set-group">
+        <h3><i data-icon="feel"></i>手感</h3>
+        <label class="row"><span>震動回饋</span><input type="checkbox" id="set-vibrate"></label>
+        <label class="row"><span>轉向靈敏度</span>
+          <select id="set-sens"><option value="0">慢一點</option><option value="1">普通</option><option value="2">快一點</option></select>
+        </label>
+      </section>
+      <section class="set-group">
+        <h3><i data-icon="see"></i>看得清楚</h3>
+        <label class="row"><span>減少動態</span><input type="checkbox" id="set-motion"></label>
+        <label class="row"><span>色彩輔助（加形狀標記）</span><input type="checkbox" id="set-color"></label>
+        <label class="row"><span>大一點的字</span><input type="checkbox" id="set-bigtext"></label>
+      </section>
+      <section class="set-group">
+        <h3><i data-icon="play"></i>玩法</h3>
+        <label class="row"><span>負面道具（單機）</span><input type="checkbox" id="set-bad"></label>
+        <p class="hint">關掉之後只會抽到果汁加速、泡泡護盾、葉子小飛。幼幼班本來就不會抽到負面道具。</p>
+      </section>
+      <section class="set-group">
+        <h3><i data-icon="data"></i>這台裝置上的資料</h3>
+        <div class="row buttons">
+          <button class="mini-btn" id="set-clear" type="button">清除本機紀錄</button>
+          <button class="mini-btn" id="set-reset" type="button">恢復預設設定</button>
+        </div>
+        <p class="hint" id="set-data-note"></p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 暫停 Modal ===== -->
+<div class="modal" id="modal-pause" hidden role="dialog" aria-modal="true" aria-labelledby="pause-title">
+  <div class="modal-mask" data-close></div>
+  <div class="modal-box small">
+    <header><h2 id="pause-title">暫停</h2></header>
+    <div class="modal-body pause-body">
+      <button class="big-btn primary" id="pause-resume" type="button">繼續</button>
+      <button class="big-btn" id="pause-restart" type="button">重新開始</button>
+      <button class="big-btn ghost" id="pause-home" type="button">回首頁</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/rng.js"></script>
+<script src="js/themes/characters.js"></script>
+<script src="js/themes/tracks-art.js"></script>
+<script src="js/themes/nicknames.js"></script>
+<script src="js/tracks.js"></script>
+<script src="js/items.js"></script>
+<script src="js/rules.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/render.js"></script>
+<script src="js/input.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/svgui.js"></script>
+<script src="js/net.js"></script>
+<!-- online.js 在模組頂層就取 root.App，所以一定要排在 app.js 後面 -->
+<script src="js/app.js"></script>
+<script src="js/online.js"></script>
+</body>
+</html>

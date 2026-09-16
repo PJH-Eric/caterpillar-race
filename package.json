@@ -1,0 +1,26 @@
+{
+  "name": "caterpillar-race",
+  "version": "0.1.0",
+  "description": "毛毛蟲賽車 - 俯視視角的可愛賽車遊戲（八隻毛毛蟲、六張賽道、蠕動衝刺、四段難度；零依賴）",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/verify.js",
+    "test:track": "node scripts/track-check.js",
+    "test:ai": "node scripts/ai-check.js",
+    "test:item": "node scripts/item-check.js",
+    "test:online": "node scripts/online-check.js",
+    "test:render": "node scripts/render-check.js",
+    "test:audio": "node scripts/audio-check.js",
+    "test:flow": "node scripts/flow-check.js",
+    "verify": "node tests/verify.js && node scripts/track-check.js && node scripts/item-check.js && node scripts/ai-check.js && node scripts/render-check.js && node scripts/audio-check.js && node scripts/flow-check.js && node scripts/online-check.js",
+    "inject": "node scripts/inject-server-url.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {},
+  "license": "MIT",
+  "private": true
+}

@@ -1,0 +1,48 @@
+# 把 public/ 發到 GitHub Pages，建置時注入遊戲伺服器網址。
+#
+# 需要先在 repo 的 Settings → Secrets and variables → Actions → Variables
+# 新增一個 GAME_SERVER_URL，值填 Render 上的伺服器網址（https://xxx.onrender.com）。
+# 沒有設也能發，只是前端只能玩單機。
+name: 發佈到 GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 驗收（規則、賽道、道具、電腦對手、美術、音訊、流程、線上）
+        run: npm run verify
+      - name: 注入 server URL
+        env:
+          GAME_SERVER_URL: ${{ vars.GAME_SERVER_URL }}
+        run: node scripts/inject-server-url.js
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
