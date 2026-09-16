@@ -47,6 +47,10 @@ ok('怎麼玩有回首頁', ids.has('help-back'));
 ok('大廳有回首頁', ids.has('lobby-back'));
 ok('房間有離開房間', ids.has('room-back'));
 ok('結算有再來一局與回首頁', ids.has('again') && ids.has('result-home'));
+ok('首頁有回遊戲大廳的連結', ids.has('lobby-home-link') &&
+  /<a id="lobby-home-link"[^>]*href="https:\/\/[^"]*game-lobby/.test(html));
+ok('回大廳連結只在首頁出現', /lobbyLink\.hidden = \(name !== 'home'\)/.test(app));
+ok('回大廳連結不會被 display 蓋掉', /\.lobby-home-link\[hidden\]/.test(css));
 ok('比賽中 Esc 開暫停選單', /onPause/.test(app) && ids.has('modal-pause'));
 ok('暫停選單只有繼續／重新開始／回首頁三顆',
   ids.has('pause-resume') && ids.has('pause-restart') && ids.has('pause-home'));

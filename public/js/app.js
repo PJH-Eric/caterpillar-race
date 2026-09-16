@@ -139,6 +139,9 @@
       if (el) el.hidden = (s !== name);
     }
     D.body.dataset.screen = name;
+    /* 「回遊戲大廳」只在首頁出現；其他畫面左上角已經有自己的返回鍵 */
+    const lobbyLink = $('lobby-home-link');
+    if (lobbyLink) lobbyLink.hidden = (name !== 'home');
     if (name !== 'race') stopLoop();
     if (name === 'home' || name === 'setup') G.audio.setTheme(G.settings.lastTrack || 'garden');
   }

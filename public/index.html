@@ -14,6 +14,12 @@
 <!-- ===== 右上角設定（所有主要畫面共用同一顆） ===== -->
 <button id="btn-gear" class="gear" type="button" aria-label="設定" title="設定"></button>
 
+<!-- 首頁左上角的「回遊戲大廳」：跟其他遊戲專案同一個位置與寫法。
+     是真的 <a>（長按可複製、中鍵可開新分頁），不是 button ＋ location.href。
+     只在首頁出現；其他畫面左上角已經有自己的返回鍵，不會疊到。 -->
+<a id="lobby-home-link" class="lobby-home-link" href="https://pjh-eric.github.io/game-lobby/"
+   aria-label="回遊戲大廳">← 回遊戲大廳</a>
+
 <!-- ===== 首頁 ===== -->
 <section id="screen-home" class="screen" aria-label="首頁">
   <div class="home-wrap">
