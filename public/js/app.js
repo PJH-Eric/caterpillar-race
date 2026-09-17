@@ -478,7 +478,7 @@
     const sprint = !!(G.track && G.track.open);
     $('my-lap-total').textContent = sprint ? '%' : ('/' + G.state.laps);
     $('my-lap-unit').textContent = sprint ? '' : ' 圈';
-    $('lap-time-label').textContent = sprint ? '總時間' : '本圈';
+    $('lap-time-label').textContent = sprint ? '進行時間' : '本圈';
     $('toast-wrap').innerHTML = '';
 
     show('race');
@@ -1177,9 +1177,15 @@
       ? Math.min(100, Math.round(me.node / Math.max(1, G.track.nodes.length - 1) * 100))
       : Math.min(st.laps, me.lap + 1);
     if (hud.lap !== lapNow) { hud.lap = lapNow; $('my-lap').textContent = String(lapNow); }
-    $('lap-time').textContent = (sprint
-      ? Math.max(0, st.raceT)
-      : (me.started ? Math.max(0, st.raceT - me.lapStart) : 0)).toFixed(2);
+    /* 自己衝線後固定顯示完賽當下的時間；本場總秒數則繼續走到最後一位完成。 */
+    const stoppedAt = (me.finished || st.phase === 'finished')
+      ? (me.finishTime || st.raceT)
+      : st.raceT;
+    const lapTime = sprint
+      ? Math.max(0, stoppedAt)
+      : (me.started ? Math.max(0, stoppedAt - me.lapStart) : 0);
+    $('lap-time').textContent = lapTime.toFixed(2);
+    $('race-total-time').textContent = Math.max(0, st.raceT).toFixed(2);
 
     /* 持有道具。
      * 這一段本來每一幀都重寫 innerHTML（而且裡面還有一整個 SVG）——

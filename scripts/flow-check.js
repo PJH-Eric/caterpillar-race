@@ -84,8 +84,12 @@ for (const id of ['set-vibrate', 'set-sens', 'set-cam', 'set-zoom', 'set-motion'
 
 /* ---------- 4. 對戰畫面的資訊配置：Summary 與聊天都在左側 ---------- */
 ok('有操作 Summary', ids.has('summary'));
-ok('Summary 顯示名次、圈數、本圈時間、道具、名次表',
-  ['my-rank', 'my-lap', 'lap-time', 'sum-item', 'standings'].every(id => ids.has(id)));
+ok('Summary 顯示名次、圈數、本圈時間、本場總秒數、道具、名次表',
+  ['my-rank', 'my-lap', 'lap-time', 'race-total-time', 'sum-item', 'standings'].every(id => ids.has(id)) &&
+  /本場總秒數/.test(html));
+ok('選手完賽後固定計時，本場總秒數跑到最後一位',
+  /me\.finished \|\| st\.phase === 'finished'/.test(app) &&
+  /me\.finishTime \|\| st\.raceT/.test(app) && /race-total-time/.test(app));
 ok('蠕動衝刺已經完全移除', !/wiggle-gauge/.test(html) && !/蠕動/.test(html) &&
   !/WIGGLE/.test(read('public/js/rules.js')) && !/wiggle-gauge/.test(css));
 

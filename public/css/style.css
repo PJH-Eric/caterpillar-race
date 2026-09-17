@@ -424,6 +424,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .sum-rank span, .sum-lap span { font-size: .8em; color: var(--ink-soft); }
 .sum-lap { margin-left: auto; font-weight: 800; }
 .sum-lap b { font-size: 1.25em; }
+.sum-times { display: grid; gap: 2px; }
 .sum-time { display: flex; align-items: baseline; gap: 5px; font-variant-numeric: tabular-nums; }
 .sum-time span { font-size: 1.15em; font-weight: 800; }
 .sum-time small { color: var(--ink-soft); }
@@ -791,6 +792,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   }
   .summary .sum-body { display: grid; grid-template-columns: auto auto 1fr; gap: 4px 10px; align-items: center; }
   .summary .sum-body[hidden] { display: none; }
+  .summary .sum-times { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 12px; }
   .summary .standings, .summary .sum-note { grid-column: 1 / -1; }
   /* 直向手機的資訊欄不能吃掉三分之一個畫面，名次表限高就好（完整的在小地圖上） */
   .summary .standings { max-height: 4.8em; overflow: hidden; }
