@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
       - name: 驗收（規則、賽道、道具、電腦對手、美術、音訊、流程、線上）
         run: npm run verify
       - name: 注入 server URL
