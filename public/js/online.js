@@ -229,13 +229,78 @@
     paintChat();
   }
 
+  function buildSeatPicker() {
+    const select = $('room-seats');
+    const picker = $('room-seats-picker');
+    const trigger = $('room-seats-trigger');
+    const valueEl = $('room-seats-value');
+    const menu = $('room-seats-menu');
+    if (!select || !picker || !trigger || !valueEl || !menu || picker.dataset.ready) return;
+
+    const options = [2, 3, 4, 5, 6];
+    menu.innerHTML = options.map(n =>
+      '<button class="select-option" type="button" role="option" data-value="' + n + '">' + n + ' 人</button>'
+    ).join('');
+
+    const setValue = (value, notify) => {
+      const next = options.includes(Number(value)) ? String(value) : String(options[0]);
+      select.value = next;
+      valueEl.textContent = next + ' 人';
+      for (const option of menu.querySelectorAll('[role="option"]')) {
+        option.setAttribute('aria-selected', String(option.dataset.value === next));
+      }
+      if (notify) pushSetup();
+    };
+    const close = () => {
+      menu.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+    };
+    const open = () => {
+      menu.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+    };
+    const toggle = () => (menu.hidden ? open() : close());
+    const move = step => {
+      const index = options.indexOf(Number(select.value));
+      const nextIndex = (Math.max(0, index) + step + options.length) % options.length;
+      setValue(options[nextIndex], true);
+    };
+
+    for (const option of menu.querySelectorAll('[role="option"]')) {
+      option.addEventListener('click', () => {
+        setValue(option.dataset.value, true);
+        close();
+        trigger.focus();
+      });
+    }
+    trigger.addEventListener('click', toggle);
+    trigger.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { if (!menu.hidden) { e.preventDefault(); close(); } return; }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (menu.hidden) open();
+        move(e.key === 'ArrowDown' ? 1 : -1);
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault(); toggle();
+      }
+    });
+    D.addEventListener('click', e => { if (!picker.contains(e.target)) close(); });
+    picker.dataset.ready = '1';
+    setValue(select.value || options[0], false);
+  }
+
   function fillOwnerControls(room) {
     if ($('room-seats').options.length === 0) {
       $('room-seats').innerHTML = [2, 3, 4, 5, 6].map(n => '<option value="' + n + '">' + n + ' 人</option>').join('');
-      $('room-seats').addEventListener('change', pushSetup);
+      buildSeatPicker();
       $('room-bad').addEventListener('change', pushSetup);
-    }
+    } else buildSeatPicker();
     $('room-seats').value = String(room.seats);
+    const valueEl = $('room-seats-value');
+    if (valueEl) valueEl.textContent = String(room.seats) + ' 人';
+    for (const option of $('room-seats-menu').querySelectorAll('[role="option"]')) {
+      option.setAttribute('aria-selected', String(option.dataset.value === String(room.seats)));
+    }
     $('room-bad').checked = !!room.allowBad;
   }
 

@@ -131,7 +131,16 @@
       <h3>玩家席位 <small id="seat-count"></small></h3>
       <div class="seat-list" id="seat-list"></div>
       <div class="room-owner-only" id="room-owner-only" hidden>
-        <label class="field inline"><span>人數上限</span><select id="room-seats"></select></label>
+        <div class="field inline room-seats-field">
+          <span id="room-seats-label">人數上限</span>
+          <span class="select-control" id="room-seats-picker">
+            <select id="room-seats" tabindex="-1" aria-hidden="true" hidden></select>
+            <button class="select-trigger" id="room-seats-trigger" type="button" aria-labelledby="room-seats-label room-seats-value" aria-haspopup="listbox" aria-expanded="false" aria-controls="room-seats-menu">
+              <span id="room-seats-value">4 人</span><span class="select-chevron" aria-hidden="true"></span>
+            </button>
+            <span class="select-menu" id="room-seats-menu" role="listbox" aria-labelledby="room-seats-label" hidden></span>
+          </span>
+        </div>
         <label class="field check"><input type="checkbox" id="room-bad"><span>開放負面道具</span></label>
       </div>
       <div class="room-buttons">
