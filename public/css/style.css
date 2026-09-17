@@ -637,13 +637,13 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   /* 房間寬版左欄上下排列玩家與聊天室，右欄保留完整賽道選擇。 */
   .room-body {
     grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-    grid-template-rows: max-content minmax(190px, 1fr) auto;
-    align-items: stretch;
+    grid-template-rows: max-content auto auto;
+    align-items: start;
   }
   .room-players { grid-column: 1; grid-row: 1; }
   .room-track-panel { grid-column: 2; grid-row: 1 / -1; }
-  .room-chat { grid-column: 1; grid-row: 2; min-height: 190px; display: flex; flex-direction: column; }
-  .room-chat .chat-log { flex: 1 1 auto; max-height: none; min-height: 76px; }
+  .room-chat { grid-column: 1; grid-row: 2; min-height: 0; }
+  .room-chat .chat-log { max-height: 120px; min-height: 0; }
   .room-result { grid-column: 1; grid-row: 3; }
   .setup-body { grid-template-columns: 1.1fr 1fr; }
   .setup-body .panel:nth-child(2) { grid-row: span 2; }

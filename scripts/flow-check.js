@@ -88,6 +88,10 @@ ok('聊天室在左下', /\.chat-dock\s*\{[^}]*left:[^}]*bottom:/.test(css));
 ok('房間聊天室有獨立區塊', ids.has('room-chat-log') && /class="panel room-chat"/.test(html));
 ok('房間寬版聊天室排在左欄', /\.room-chat\s*\{[^}]*grid-column:\s*1[^}]*grid-row:\s*2/.test(css));
 ok('房間寬版賽道選擇保留在右欄', /\.room-track-panel\s*\{[^}]*grid-column:\s*2/.test(css));
+ok('房間聊天室高度依內容調整',
+  /\.room-body\s*\{[^}]*grid-template-rows:\s*max-content auto auto/.test(css) &&
+  /\.room-chat\s*\{[^}]*min-height:\s*0/.test(css) &&
+  /\.room-chat \.chat-log\s*\{[^}]*max-height:\s*120px[^}]*min-height:\s*0/.test(css));
 ok('聊天有未讀數', ids.has('chat-unread'));
 ok('窄版 Summary 可以收合', ids.has('sum-toggle') && /\.sum-toggle\s*\{\s*display:\s*none/.test(css));
 ok('有小地圖（鏡頭會轉，需要不轉的參考）', ids.has('minimap'));
