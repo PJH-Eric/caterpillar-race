@@ -193,7 +193,7 @@
     return Tracks.surfaceAt(state.track, r.x, r.y);
   }
 
-  function speedFactor(state, r, surface, steer, gas) {
+  function speedFactor(state, r, surface, steer, gas, man) {
     const d = DIFFICULTY[r.difficulty] || DIFFICULTY.normal;
     let f = C.SURFACE_SPEED[surface];
 
@@ -216,10 +216,12 @@
     /* 電腦對手的速度上限；真人一律 1.0。capScale 給幼幼班的「等一下玩家」用。 */
     if (r.kind === 'ai') f *= d.cap * (r.capScale || 1);
 
-    /* 油門（只有鍵盤會送）。0 就是原本的自動前進，觸控與電腦對手都走這條。
-     * 往上催多一成多，往下是煞車再倒退 —— 倒退時所有加成都不算。 */
+    /* 油門。man＝1 是鍵盤模式：不按上就不會往前，鬆手會自己滑行停下來。
+     * man＝0 是觸控與電腦對手的自動前進，gas 只做加速與倒退的修正。
+     * 往下一律是煞車再倒退，倒退時所有加成都不算。 */
+    if (gas < 0) return C.GAS_DOWN;
+    if (man) return gas > 0 ? f * C.GAS_UP : 0;
     if (gas > 0) f *= C.GAS_UP;
-    else if (gas < 0) f = C.GAS_DOWN;
     return f;
   }
 
@@ -517,6 +519,7 @@
       const input = (inputs && inputs[r.id]) || { steer: 0, use: false };
       const steer = clamp(Math.round(input.steer || 0), -1, 1);
       const gas = clamp(Math.round(input.gas || 0), -1, 1);
+      const man = input.man ? 1 : 0;
 
       if (input.use && r.item && state.t >= 0) useItem(state, r);
 
@@ -546,7 +549,7 @@
       let vLong = r.vx * hx + r.vy * hy;
       let vLat = r.vx * (-hy) + r.vy * hx;
 
-      const target = C.BASE_SPEED * speedFactor(state, r, surface, steer, gas);
+      const target = C.BASE_SPEED * speedFactor(state, r, surface, steer, gas, man);
       const rate = (vLong < target ? C.ACCEL : C.BRAKE) * dt;
       vLong = moveToward(vLong, target, rate);
 

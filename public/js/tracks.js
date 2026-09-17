@@ -209,10 +209,12 @@
     /* 道具葉：沿賽道等距擺，左右交錯，用 seed 決定橫向偏移 */
     const rng = RNG.create(def.seed || def.id || 'track');
     const items = [];
-    const gap = Math.max(8, Math.floor(nodes.length / (def.itemCount || 18)));
+    /* 道具葉：排數與每排的數量都收斂過。
+     * 原本一排最多三片、排得又密，整條路面看過去都是葉子，賽道本身反而看不清楚。 */
+    const gap = Math.max(11, Math.floor(nodes.length / (def.itemCount || 12)));
     for (let i = Math.floor(gap / 2); i < nodes.length; i += gap) {
       const nd = nodes[i];
-      const lanes = rng.int(1, 3);
+      const lanes = rng.int(1, 2);
       for (let k = 0; k < lanes; k++) {
         const off = (k - (lanes - 1) / 2) * (nd.w * 0.55);
         items.push({ x: nd.x + nd.nx * off, y: nd.y + nd.ny * off, node: i });
@@ -307,7 +309,7 @@
     {
       id: 'garden', name: '花園小徑', theme: 'garden', stars: 1, laps: 2,
       desc: '寬敞好跑的入門賽道，彎道和緩，適合第一次玩。',
-      startNode: 0, itemCount: 14,
+      startNode: 0, itemCount: 9,
       ctrl: [
         [0, -520, 96], [330, -470, 96], [520, -260, 92], [540, 40, 92],
         [430, 300, 88], [170, 430, 92], [-140, 450, 92], [-400, 330, 88],
@@ -320,7 +322,7 @@
     {
       id: 'veggie', name: '菜園迷宮', theme: 'veggie', stars: 2, laps: 3,
       desc: '菜畦之間的直角彎一個接一個，走線沒抓好就會撞牆。',
-      startNode: 0, itemCount: 18,
+      startNode: 0, itemCount: 12,
       ctrl: [
         [-560, -420, 74], [-160, -440, 74], [-140, -140, 70], [-480, -120, 70],
         [-500, 180, 72], [-120, 200, 70], [-100, 470, 74], [300, 480, 76],
@@ -334,7 +336,7 @@
     {
       id: 'branch', name: '大樹枝幹', theme: 'branch', stars: 3, laps: 3,
       desc: '在樹枝上跑，路面很窄，掉下去就得在葉子上慢慢爬回來。',
-      startNode: 0, itemCount: 16,
+      startNode: 0, itemCount: 10,
       ctrl: [
         [-30, -560, 58], [280, -480, 54], [470, -250, 50], [430, 60, 48],
         [560, 290, 52], [330, 470, 54], [10, 420, 50], [-260, 500, 52],
@@ -351,7 +353,7 @@
     {
       id: 'pond', name: '水窪淺灘', theme: 'pond', stars: 2, laps: 3,
       desc: '雨後的淺灘，泥巴和水窪特別多，記得繞開深色的地方。',
-      startNode: 0, itemCount: 18,
+      startNode: 0, itemCount: 12,
       ctrl: [
         [0, -500, 92], [300, -430, 90], [470, -200, 86], [380, 60, 84],
         [520, 280, 88], [260, 460, 90], [-60, 470, 88], [-330, 380, 86],
@@ -364,7 +366,7 @@
     {
       id: 'candy', name: '糖果餅乾', theme: 'candy', stars: 3, laps: 3,
       desc: '長長的餅乾直線，是練蠕動衝刺最痛快的地方，但兩端的大彎很吃技術。',
-      startNode: 0, itemCount: 16,
+      startNode: 0, itemCount: 10,
       ctrl: [
         [-620, -300, 86], [0, -380, 90], [620, -300, 86], [700, -60, 82],
         [560, 170, 84], [180, 120, 80], [-180, 160, 80], [-560, 190, 84],
@@ -377,7 +379,7 @@
     {
       id: 'shroom', name: '夜光蘑菇', theme: 'shroom', stars: 4, laps: 3,
       desc: '夜裡的蘑菇森林，路窄、彎急、捷徑多，是最難的一張。',
-      startNode: 0, itemCount: 20,
+      startNode: 0, itemCount: 13,
       ctrl: [
         [-60, -560, 56], [230, -520, 54], [340, -320, 50], [200, -140, 46],
         [420, -40, 50], [560, 170, 54], [360, 400, 54], [60, 430, 50],
@@ -435,7 +437,7 @@
     return {
       id: 'random', name: '隨機賽道', theme: rng.pick(['garden', 'veggie', 'pond', 'candy', 'shroom', 'branch']),
       desc: '每一局都不一樣的賽道。', stars: 3, laps: 3, random: true, seed: seed,
-      startNode: 0, itemCount: 18, ctrl, boosts, mud, rocks
+      startNode: 0, itemCount: 12, ctrl, boosts, mud, rocks
     };
   }
 

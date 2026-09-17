@@ -464,18 +464,110 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .modal-box header h2 { font-size: 1.15em; }
 .icon-btn {
   margin-left: auto; width: 40px; height: 40px; border: none; border-radius: 50%;
-  background: #EFE8D6; cursor: pointer; display: grid; place-items: center; color: var(--ink-soft);
+  background: linear-gradient(180deg, #fff, #E7DFCA); cursor: pointer;
+  display: grid; place-items: center; color: var(--ink-soft);
+  box-shadow: inset 0 2px 0 #fff, 0 3px 0 rgba(0,0,0,.14);
 }
 .icon-btn svg { width: 22px; height: 22px; }
-.modal-body { padding: 14px 16px; overflow: auto; display: grid; gap: 14px; }
+.icon-btn:active { transform: translateY(2px); box-shadow: inset 0 2px 0 #fff, 0 1px 0 rgba(0,0,0,.14); }
+.modal-body { padding: 14px 16px; overflow: auto; display: grid; gap: 12px; align-content: start; }
 .modal-body.pause-body { gap: 10px; }
-.set-group h3 { display: flex; align-items: center; gap: 8px; font-size: .95em; color: #3E7A16; margin-bottom: 6px; }
+
+/* ---------- 設定：每一組是一張立起來的小卡 ---------- */
+
+.modal-box header {
+  background: linear-gradient(180deg, #FFFDF4, #F2EAD6);
+}
+.set-group {
+  background: linear-gradient(180deg, #FFFDF5, #F6EFDD);
+  border-radius: 16px;
+  padding: 10px 12px 12px;
+  box-shadow: 0 3px 0 rgba(0,0,0,.09), inset 0 1px 0 rgba(255,255,255,.95);
+}
+.set-group h3 {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .95em; color: #3E7A16; margin-bottom: 4px;
+}
 .set-group h3 svg { width: 20px; height: 20px; }
-.set-group .row { display: flex; align-items: center; gap: 10px; min-height: 42px; font-size: .9em; font-weight: 600; }
+.set-group .row {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 46px; font-size: .9em; font-weight: 600;
+}
+.set-group .row + .row { border-top: 1px solid rgba(0, 0, 0, .055); }
 .set-group .row > span:first-child { flex: 1; }
-.set-group .row.buttons { gap: 8px; }
-.set-group input[type="range"] { width: 130px; }
-.set-group input[type="checkbox"] { width: 24px; height: 24px; }
+.set-group .row.buttons { gap: 8px; border-top: none; padding-top: 4px; }
+.set-group .row.buttons .mini-btn { flex: 1; }
+.set-group .hint { margin-top: 6px; }
+
+/* 開關：外殼是凹進去的軌道，把手是浮起來的球 */
+.set-group input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none;
+  flex: 0 0 auto; width: 56px; height: 32px; margin: 0;
+  border: none; border-radius: 999px; position: relative; cursor: pointer;
+  background: linear-gradient(180deg, #D8CFB9, #EDE6D5);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.24), 0 1px 0 rgba(255,255,255,.85);
+  transition: background .18s ease;
+}
+.set-group input[type="checkbox"]::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: linear-gradient(180deg, #fff, #EBE4D3);
+  box-shadow: 0 2px 4px rgba(0,0,0,.3), inset 0 2px 0 #fff;
+  transition: transform .18s cubic-bezier(.3, 1.4, .5, 1);
+}
+.set-group input[type="checkbox"]:checked {
+  background: linear-gradient(180deg, var(--green), var(--green-dark));
+}
+.set-group input[type="checkbox"]:checked::after { transform: translateX(24px); }
+.set-group input[type="checkbox"]:focus-visible { outline: 3px solid #3E7A16; outline-offset: 3px; }
+
+/* 下拉：跟 mini-btn 同一套立體做法 */
+.set-group select {
+  appearance: none; -webkit-appearance: none;
+  flex: 0 1 auto; max-width: 60%;
+  padding: .5em 30px .5em .85em;
+  border: none; border-radius: 12px; cursor: pointer;
+  font: inherit; font-weight: 700; color: var(--ink);
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'><path d='M1 1.6 6 6.4 11 1.6' fill='none' stroke='%236B6448' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>"),
+    linear-gradient(180deg, #fff, #EFE8D6);
+  background-repeat: no-repeat;
+  background-position: right 10px center, center;
+  background-size: 12px 8px, auto;
+  box-shadow: inset 0 1px 0 #fff, 0 3px 0 rgba(0,0,0,.12);
+}
+.set-group select:active { transform: translateY(2px); box-shadow: inset 0 1px 0 #fff, 0 1px 0 rgba(0,0,0,.12); }
+
+/* 選項字太長的那幾列改成上下排，才不會擠成一團 */
+.set-group .row:has(select) { flex-wrap: wrap; row-gap: 2px; padding: 4px 0; }
+.set-group .row:has(select) > span:first-child { flex: 1 0 100%; }
+.set-group .row:has(select) select { max-width: 100%; width: 100%; }
+
+/* 滑桿：凹軌 ＋ 浮起來的把手 */
+.set-group input[type="range"] {
+  appearance: none; -webkit-appearance: none;
+  flex: 0 0 auto; width: 148px; height: 26px; background: transparent; cursor: pointer;
+}
+.set-group input[type="range"]::-webkit-slider-runnable-track {
+  height: 10px; border-radius: 999px;
+  background: linear-gradient(180deg, #D8CFB9, #EDE6D5);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.22);
+}
+.set-group input[type="range"]::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none;
+  width: 24px; height: 24px; margin-top: -7px; border-radius: 50%;
+  background: linear-gradient(180deg, #fff, #E7DFCA);
+  box-shadow: 0 2px 4px rgba(0,0,0,.3), inset 0 2px 0 #fff;
+}
+.set-group input[type="range"]::-moz-range-track {
+  height: 10px; border-radius: 999px; background: #DDD5C2;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.22);
+}
+.set-group input[type="range"]::-moz-range-thumb {
+  width: 24px; height: 24px; border: none; border-radius: 50%;
+  background: linear-gradient(180deg, #fff, #E7DFCA);
+  box-shadow: 0 2px 4px rgba(0,0,0,.3);
+}
 
 /* ================================================================
  *  RWD：平板優先，再往桌機與手機兩邊調
@@ -491,6 +583,16 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   .chat-dock { width: 210px; }
   .minimap { width: 148px; height: 148px; }
   .help-body { grid-template-columns: 1fr 1fr; }
+  /* 設定有五組，一欄要捲很久；桌機排兩欄一眼就看得完 */
+  #modal-settings .modal-box { width: min(94vw, 680px); }
+  #modal-settings .modal-body {
+    grid-template-columns: 1fr 1fr; gap: 12px 14px;
+    /* 每張卡各自貼齊上緣，不要被同一列的高卡片撐開 */
+    align-items: start;
+  }
+  /* 最後那組只有兩顆按鈕，橫跨兩欄把底部的空洞補起來 */
+  #modal-settings .set-group:last-child { grid-column: 1 / -1; }
+  #modal-settings .set-group:last-child .row.buttons .mini-btn { flex: 0 1 220px; }
 }
 
 /* 手機與窄視窗：Summary 收成頂部細列，聊天變浮動彈層 */

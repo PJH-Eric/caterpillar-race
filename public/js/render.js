@@ -23,19 +23,20 @@
   /* 參考畫面裡的毛毛蟲是「緊湊的幾顆圓球」，不是一條長蟲，
    * 所以節數少一點、球大一點、間距近一點，剪影才對得上。 */
   const SEGS = 3;          /* 身體節數（不含頭） */
-  const SEG_GAP = 11.5;    /* 節與節的距離（比直徑小，球才會互相疊住） */
+  const SEG_GAP = 10.5;    /* 節與節的距離（比直徑小，球才會互相疊住） */
   const HEAD_R = 16;
-  /* 毛毛蟲是「立起來」的：尾巴踩在地上，身體斜斜往上疊，頭在最上面。
-   * 全部平貼在地上排成一排的話，從後面看就是一條趴著的香腸。 */
-  const BODY_LEAN = 0.58;                              /* 身體與地面的夾角（弧度，約 33°） */
-  const SEG_RUN = SEG_GAP * Math.cos(BODY_LEAN);       /* 每一節往後退多少（地面上） */
-  const SEG_RISE = SEG_GAP * Math.sin(BODY_LEAN);      /* 每一節往上抬多少（高度） */
+  /* 每一節都貼在地上，沒有任何一節浮起來。
+   * 「站著而不是趴著」靠的是頭特別大、身體往後收得很快 ——
+   * 剪影是一顆高高的大頭加一截小尾巴，不是一條等粗的香腸。
+   * 之前改成斜斜往上疊過，那會讓頭懸在半空中，看起來就是飄的。 */
+  const SEG_RUN = SEG_GAP;                             /* 每一節往後退多少（地面上） */
+  const SEG_RISE = 0;                                  /* 不抬高，全部貼地 */
   function segRadius(i, scale) {
     return (i === 0 ? HEAD_R : HEAD_R * (0.70 - (i - 1) * 0.16)) * (scale || 1);
   }
-  /** 第 i 節的球心高度：尾巴那一節剛好踩在地上，往前每一節抬 SEG_RISE */
+  /** 第 i 節的球心高度＝自己的半徑，球的最低點剛好落在地面上 */
   function segHeight(i, scale) {
-    return segRadius(SEGS, scale) + (SEGS - i) * SEG_RISE * (scale || 1);
+    return segRadius(i, scale);
   }
 
   /* ---------- 鏡頭與投影 ---------- */
@@ -88,20 +89,36 @@
    *  二、天空、遠山與地面
    * ================================================================ */
 
-  function drawSky(ctx, P, theme, t) {
+  /* 天空與地面的漸層只跟「畫面高度 ＋ 主題」有關，每一幀重建純粹是浪費。
+   * 快取起來之後，這兩個 createLinearGradient 一局只會發生幾次。 */
+  const gradCache = { sky: null, ground: null, key: '' };
+  function cachedGrads(ctx, P, theme) {
+    const key = P.view.w + 'x' + P.view.h + '|' + theme.sky2 + theme.skyLow + theme.grass + theme.grassDark;
+    if (gradCache.key !== key) {
+      const hz = P.horizon, v = P.view;
+      const sg = ctx.createLinearGradient(0, 0, 0, hz);
+      sg.addColorStop(0, theme.sky2);
+      sg.addColorStop(1, theme.skyLow);
+      const gg = ctx.createLinearGradient(0, hz, 0, v.h);
+      gg.addColorStop(0, theme.grassDark);
+      gg.addColorStop(0.16, theme.grass);
+      gg.addColorStop(1, theme.grass);
+      gradCache.sky = sg; gradCache.ground = gg; gradCache.key = key;
+    }
+    return gradCache;
+  }
+
+  function drawSky(ctx, P, theme, t, lite) {
     const v = P.view, hz = P.horizon;
 
-    const g = ctx.createLinearGradient(0, 0, 0, hz);
-    g.addColorStop(0, theme.sky2);
-    g.addColorStop(1, theme.skyLow);
-    ctx.fillStyle = g;
+    ctx.fillStyle = cachedGrads(ctx, P, theme).sky;
     ctx.fillRect(0, 0, v.w, hz + 1);
 
     /* 太陽／月亮綁在世界的某個方位，鏡頭一轉它就跟著移，才有「在世界裡」的感覺 */
     let rel = 2.1 - P.cam.a;
     while (rel > Math.PI) rel -= TAU;
     while (rel < -Math.PI) rel += TAU;
-    if (Math.abs(rel) < 1.5) {
+    if (Math.abs(rel) < 1.5 && !lite) {
       const sx = P.halfW + rel * P.focal * 0.55;
       const sy = hz * 0.34;
       const sr = v.h * 0.05;
@@ -145,7 +162,8 @@
     ctx.fillStyle = theme.grassDark;
     ctx.fillRect(0, hz - v.h * 0.004, v.w, v.h * 0.016);
 
-    /* 幾朵雲（夜間主題換成星星） */
+    /* 幾朵雲（夜間主題換成星星）。低效能模式整段跳過。 */
+    if (lite) return;
     if (theme.night) {
       ctx.fillStyle = 'rgba(255,255,255,.8)';
       for (let i = 0; i < 46; i++) {
@@ -181,11 +199,7 @@
   /** 地面底色：地平線附近偏暗（大氣感），往下轉成草地色 */
   function drawGround(ctx, P, theme) {
     const v = P.view, hz = P.horizon;
-    const g = ctx.createLinearGradient(0, hz, 0, v.h);
-    g.addColorStop(0, theme.grassDark);
-    g.addColorStop(0.16, theme.grass);
-    g.addColorStop(1, theme.grass);
-    ctx.fillStyle = g;
+    ctx.fillStyle = cachedGrads(ctx, P, theme).ground;
     ctx.fillRect(0, hz, v.w, v.h - hz);
   }
 
@@ -198,7 +212,7 @@
    * 沒有它的話，鏡頭壓低之後畫面下半是一大片純色，跑起來完全沒有速度感 ——
    * 參考畫面裡那層沙地顆粒做的就是這件事。 */
   const TEX_CELL = 64;
-  const TEX_SPAN = 9;     /* 鏡頭四周各取幾格 */
+  const TEX_SPAN = 7;     /* 鏡頭四周各取幾格 */
 
   function drawGroundTexture(ctx, P, theme) {
     const v = P.view;
@@ -259,7 +273,7 @@
     ctx.globalAlpha = Math.min(0.55, amount * 0.55);
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineCap = 'round';
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 8; i++) {
       const seed = (i * 0.618) % 1;
       const side = i % 2 ? 1 : -1;
       const phase = ((t * 2.4 + seed) % 1);
@@ -351,7 +365,7 @@
     /* 近處畫細、遠處畫粗（LOD），不然遠方在畫一堆一像素的四邊形 */
     for (let i = -BEHIND_NODES; i < AHEAD_NODES;) {
       idxs.push(i);
-      i += i < 24 ? 1 : (i < 60 ? 3 : 5);
+      i += i < 18 ? 1 : (i < 46 ? 3 : 7);
     }
     idxs.push(AHEAD_NODES);
 
@@ -998,9 +1012,7 @@
     ctx.fillStyle = '#000';
     ctx.beginPath();
     for (const g of segs) {
-      /* 抬得越高的節，影子越小 —— 立起來的身體不該在地上印出一整條 */
-      const up = Math.max(0.42, 1 - (SEGS - g.i) * 0.2);
-      ctx.ellipse(g.x, g.gy, g.rr * up * Math.max(0.75, 1.02 - air * 0.3), g.rr * 0.26 * up, 0, 0, TAU);
+      ctx.ellipse(g.x, g.gy, g.rr * Math.max(0.75, 1.02 - air * 0.3), g.rr * 0.30, 0, 0, TAU);
     }
     ctx.fill();
     ctx.restore();
@@ -1008,7 +1020,7 @@
     /* 二、小腳：畫在身體底下，等一下會被球蓋掉上緣，只剩兩側露出來 */
     ctx.fillStyle = '#2A2118';
     for (const g of segs) {
-      if (g.i < SEGS - 1 || g.rr <= 3) continue;   /* 只有貼地的那一兩節有小腳 */
+      if (g.isHead || g.rr <= 3) continue;
       const kick = Math.sin(t * freq * 1.15 - g.i * 1.3);
       for (const side of [-1, 1]) {
         const k = side > 0 ? kick : -kick;
@@ -1031,7 +1043,7 @@
      * createRadialGradient 每幀每顆都要重建，六隻毛毛蟲就是四十幾個漸層物件，
      * 實測那是這個畫面最貴的一項。 */
     for (const g of segs) {
-      if (g.rr > 9) {
+      if (g.rr > 13) {
         const grd = ctx.createRadialGradient(g.x - g.rr * 0.36, g.cy - g.rr * 0.42, g.rr * 0.08,
           g.x, g.cy, g.rr * 1.12);
         grd.addColorStop(0, ch.bodyLight);
@@ -1129,7 +1141,7 @@
   }
 
   root.Render = {
-    SEGS, SEG_GAP, SEG_RUN, SEG_RISE, BODY_LEAN, HEAD_R, NEAR, FAR, HORIZON, GRASS_SPAN, RUMBLE,
+    SEGS, SEG_GAP, SEG_RUN, SEG_RISE, HEAD_R, NEAR, FAR, HORIZON, GRASS_SPAN, RUMBLE,
     AHEAD_NODES, BEHIND_NODES,
     makeCanvas, projector, sampleTrail, wormSvg, segPattern,
     buildScenery, drawProp, drawLeaf, drawWorm3D, drawFace,

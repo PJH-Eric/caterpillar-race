@@ -28,7 +28,7 @@
     let lastSent = 0;
     let lastSnapAt = 0;
     let ping = 0;
-    let readInput = () => ({ steer: 0, gas: 0, use: false });
+    let readInput = () => ({ steer: 0, gas: 0, man: 0, use: false });
 
     function on(type, fn) {
       (listeners[type] || (listeners[type] = [])).push(fn);
@@ -111,7 +111,7 @@
           /* 輸入送給伺服器；use 是邊緣觸發，有按到就一定要送出去 */
           const now = performance.now();
           if (raw.use || now - lastSent > 33) {
-            send({ type: 'input', steer: raw.steer, gas: raw.gas || 0, use: raw.use });
+            send({ type: 'input', steer: raw.steer, gas: raw.gas || 0, man: raw.man || 0, use: raw.use });
             lastSent = now;
           }
         }

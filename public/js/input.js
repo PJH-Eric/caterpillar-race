@@ -1,17 +1,30 @@
 /* ===== input.js — 鍵盤 ＋ 左右兩顆觸控轉向鍵 ＋ 道具鍵 =====
  *
  * 觸控：毛毛蟲自己往前，只要左轉、右轉、用道具。
- * 電腦：方向鍵四顆都有用 —— 上＝催、下＝煞車倒退、左右＝轉向；道具改成空白鍵。
+ * 電腦：方向鍵四顆都有用 —— 上＝前進、下＝煞車倒退、左右＝轉向；道具改成空白鍵。
+ *       而且電腦上「不按上就不會前進」，跟觸控的自動前進是兩種模式：
+ *       manual 由裝置能力決定，第一次按鍵就轉成鍵盤模式、第一次碰觸控鍵就轉回自動。
  * 道具是「邊緣觸發」——按一次算一次，按著不放不會連發。
  */
 (function (root) {
   'use strict';
+
+  /** 有滑鼠／觸控筆這種精準指標，而且沒有觸控螢幕，就當成鍵盤玩家 */
+  function hasFinePointer() {
+    try {
+      if (typeof root.matchMedia !== 'function') return true;
+      if (root.matchMedia('(pointer: coarse)').matches) return false;
+      return root.matchMedia('(pointer: fine)').matches;
+    } catch (e) { return false; }
+  }
 
   function create(opt) {
     opt = opt || {};
     const state = {
       left: false, right: false,
       up: false, down: false,
+      /* true＝自己控油門（不按上就不動）；false＝自動前進 */
+      manual: hasFinePointer(),
       useQueued: false,
       /* 觸控時哪一顆按鍵被哪根手指按著，多指同按才不會互相取消 */
       pointers: {}
@@ -28,6 +41,9 @@
     /* ---------- 鍵盤 ---------- */
     function onKey(e, down) {
       const k = e.key;
+      if (down && (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown'
+        || k === 'a' || k === 'A' || k === 'd' || k === 'D'
+        || k === 'w' || k === 'W' || k === 's' || k === 'S')) state.manual = true;
       if (k === 'ArrowLeft' || k === 'a' || k === 'A') { setDir('left', down); e.preventDefault(); }
       else if (k === 'ArrowRight' || k === 'd' || k === 'D') { setDir('right', down); e.preventDefault(); }
       else if (k === 'ArrowUp' || k === 'w' || k === 'W') { setDir('up', down); e.preventDefault(); }
@@ -46,6 +62,7 @@
     function bindButton(el, dir) {
       if (!el) return;
       const down = e => {
+        state.manual = false;          /* 用觸控鍵＝回到自動前進 */
         el.classList.add('down');
         state.pointers[e.pointerId] = dir;
         if (dir === 'item') state.useQueued = true;
@@ -96,7 +113,7 @@
       const gas = (state.down ? -1 : 0) + (state.up ? 1 : 0);
       const use = state.useQueued;
       state.useQueued = false;
-      return { steer, gas, use };
+      return { steer, gas, man: state.manual ? 1 : 0, use };
     }
 
     /** 不消耗地看一眼（畫面要標示按鍵有沒有被按住） */

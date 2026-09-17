@@ -288,7 +288,7 @@
       '<div class="help-keys">' +
       '<span class="help-key">' + root.SvgUI.arrowIcon(-1) + '左轉（← 或 A）</span>' +
       '<span class="help-key">' + root.SvgUI.arrowIcon(1) + '右轉（→ 或 D）</span>' +
-      '<span class="help-key">' + root.SvgUI.arrowIcon(1, 'up') + '加速（↑ 或 W）</span>' +
+      '<span class="help-key">' + root.SvgUI.arrowIcon(1, 'up') + '前進（↑ 或 W）</span>' +
       '<span class="help-key">' + root.SvgUI.arrowIcon(1, 'down') + '煞車倒退（↓ 或 S）</span>' +
       '<span class="help-key">' + root.SvgUI.itemIcon('juice', 24) + '用道具（空白鍵）</span>' +
       '</div>';
@@ -300,9 +300,9 @@
     }
     $('help-body').innerHTML =
       '<section class="panel"><h3>毛毛蟲會自己往前</h3>' +
-      '<p>毛毛蟲一直在往前爬，不催油門也會走。手機和平板上，左下角是左轉、右下角是右轉，' +
-      '中間下方那顆是道具。</p>' +
-      '<p>電腦上四顆方向鍵都有用：↑ 催下去會更快，↓ 是煞車、停住之後會慢慢倒退，← → 轉向，空白鍵用道具。</p>' + keyRow +
+      '<p>手機和平板上毛毛蟲會自己往前爬，你只要左下角左轉、右下角右轉，中間下方那顆用道具。</p>' +
+      '<p>電腦上油門在你手上：<b>按住 ↑ 才會前進</b>，放開會自己滑行停下來；' +
+      '↓ 是煞車、停住之後慢慢倒退，← → 轉向，空白鍵用道具。</p>' + keyRow +
       '<p>畫面是追尾視角，鏡頭固定在自己身上，毛毛蟲永遠在畫面正中央，地平線永遠是水平的。' +
       '覺得會暈的話，右上角設定裡可以把「鏡頭遠近」調遠一點；' +
       '「鏡頭跟隨」留在「跟賽道方向」最穩，換成「跟毛毛蟲車頭」會比較跟手但扭的時候畫面會晃。</p></section>' +
@@ -433,6 +433,17 @@
     G.raf = 0;
   }
 
+  /* 自動畫質：量最近的畫面時間，跟不上就把「好看但不影響玩法」的東西關掉
+   * （地面顆粒、太陽光暈、雲、速度線、遠處的裝飾）。
+   * 用兩個門檻做遲滯，才不會在邊界上一直開開關關。 */
+  function updateQuality(dt) {
+    const ms = Math.min(120, dt * 1000);
+    G.frameMs = G.frameMs ? G.frameMs + (ms - G.frameMs) * 0.08 : ms;
+    if (G.settings.reduceMotion) { G.lite = true; return; }
+    if (!G.lite && G.frameMs > 23) G.lite = true;        /* 低於約 43fps 就降 */
+    else if (G.lite && G.frameMs < 16.5) G.lite = false; /* 回到約 60fps 才升 */
+  }
+
   function frame(ms) {
     G.raf = root.requestAnimationFrame(frame);
     if (!G.state) return;
@@ -440,6 +451,7 @@
     let dt = (ms - G.lastMs) / 1000;
     G.lastMs = ms;
     G.frameDt = dt;
+    updateQuality(dt);
     /* 分頁切走再回來會累積一大段時間，夾住免得一次跑幾百個 tick */
     if (dt > 0.25) dt = 0.25;
 
@@ -475,7 +487,7 @@
     const me = myRacer();
     if (me && !me.finished) {
       const raw = G.input.read();
-      inputs[me.id] = { steer: applySens(raw.steer), gas: raw.gas || 0, use: raw.use };
+      inputs[me.id] = { steer: applySens(raw.steer), gas: raw.gas || 0, man: raw.man || 0, use: raw.use };
     }
     Rules.step(st, inputs);
     handleEvents(st.events);
@@ -538,9 +550,9 @@
 
   /* 三段視野：鏡頭拉多遠、架多高。拉遠看得到更多前方彎道，也比較不暈。 */
   const CAM_VIEWS = [
-    { back: 118, height: 34 },    /* 近一點：幾乎趴在地上，最有速度感 */
-    { back: 152, height: 46 },    /* 普通：參考畫面的高度，毛毛蟲佔畫面下半一大塊 */
-    { back: 205, height: 68 }     /* 遠一點：看得到更多前方彎道 */
+    { back: 124, height: 54 },    /* 近一點：貼著毛毛蟲，最有速度感 */
+    { back: 158, height: 72 },    /* 普通：看得到毛毛蟲前面那一段路 */
+    { back: 212, height: 104 }    /* 遠一點：看得到更多前方彎道 */
   ];
   /* 鏡頭偏航要跟誰：
    *   track  跟前方賽道的方向（預設）—— 蠕動的左右擺完全不會傳到畫面
@@ -638,10 +650,10 @@
     G.P = P;
 
     ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
-    R.drawSky(ctx, P, G.theme, st.t);
+    R.drawSky(ctx, P, G.theme, st.t, G.lite);
     R.drawGround(ctx, P, G.theme);
     R.drawGroundBands(ctx, P, G.theme, G.camDist || 0);
-    R.drawGroundTexture(ctx, P, G.theme);
+    if (!G.lite) R.drawGroundTexture(ctx, P, G.theme);
 
     /* 地面：賽道分段 ＋ 泥巴／加速帶／黏液／終點線，一起由遠到近畫 */
     const ground = [];
@@ -661,7 +673,7 @@
     for (const sc of G.scenery) {
       const p = P.pt(sc.x, sc.y, 0);
       /* 卡在鏡頭跟玩家中間的樹會被放大成擋住半個畫面的黑影，靠太近就淡出 */
-      if (p.f > R.FAR) continue;
+      if (p.f > (G.lite ? R.FAR * 0.55 : R.FAR)) continue;
       if (p.x < -250 || p.x > v.w + 250) continue;
       const vis = nearFade(p.f);
       if (vis <= 0.03) continue;
@@ -722,7 +734,7 @@
       ctx.setLineDash([]);
     }
 
-    if (!G.settings.reduceMotion) R.drawSpeedLines(ctx, P, G.boostVis || 0, st.t);
+    if (!G.lite) R.drawSpeedLines(ctx, P, G.boostVis || 0, st.t);
 
     drawNameplates(ctx, P);
     drawMini();

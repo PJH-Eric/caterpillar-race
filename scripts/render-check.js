@@ -94,13 +94,15 @@ ok('背對鏡頭時看不到臉', /背對鏡頭/.test(render));
 ok('場景物件（樹、蘑菇、花、石頭）有做', /function drawProp/.test(render) && /'tree'/.test(render));
 ok('高的場景物件離路邊遠一點，不會擋住賽道', /TALL/.test(render));
 ok('場景物件都有貼地陰影', /function shadow/.test(render));
-ok('遠處的小東西不畫漸層（效能）', /detail/.test(render) && /rr > 9/.test(render));
+ok('遠處的小東西不畫漸層（效能）', /detail/.test(render) && /rr > 13/.test(render));
 ok('毛毛蟲是幾顆緊湊的球（節距小於直徑）', Render_SEG_GAP < Render_HEAD_R * 2, Render_SEG_GAP + ' / ' + Render_HEAD_R * 2);
 ok('頭上有兩顆白色觸角球（背對鏡頭時唯一認得出頭的線索）', /觸角/.test(render) && /#FFFFFF/.test(render));
 ok('地面有世界座標的紋理（壓低鏡頭後畫面下半才不是一片純色）', /function drawGroundTexture/.test(render));
 ok('遠山是一顆一顆的圓包', /quadraticCurveTo/.test(render) && /遠山/.test(render));
 ok('地面裝飾太靠近鏡頭會淡出', /BLOB_NEAR/.test(render) && /BLOB_FADE/.test(render));
 ok('賽道往鏡頭後面也要畫（不然畫面下緣會空一塊）', Render_BEHIND > 15, Render_BEHIND);
+ok('天空與地面的漸層有快取（不要每一幀重建）', /gradCache/.test(render));
+ok('渲染端有低效能模式的開關', /lite/.test(render));
 
 /* ---------- 鏡頭 ---------- */
 const app = read('public/js/app.js');
@@ -112,6 +114,7 @@ ok('鏡頭位置與偏航用同一個軸線（毛毛蟲永遠釘在畫面正中�
 ok('鏡頭位置不做額外平滑（不然毛毛蟲會忽大忽小）', !/G\.cam\.x \+=/.test(app));
 ok('鏡頭旋轉有限速', /CAM_MAX_RATE/.test(app));
 ok('太近的對手與場景物件會淡出或不畫', /淡出/.test(app));
+ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(app) && /G\.lite/.test(app));
 
 /* ---------- 圖示 ---------- */
 const svgui = read('public/js/svgui.js');
