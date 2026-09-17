@@ -1,6 +1,6 @@
 /* ===== scripts/online-check.js — 線上流程端對端檢查 =====
  * 真的把伺服器跑起來，真的開 WebSocket 連上去，走完：
- * 開房 → 加入 → 席位滿了轉觀戰 → 邀請連結驗證 → 全員準備開跑 →
+ * 開房 → 加入 → 席位滿了轉觀戰 → 邀請連結驗證 → 玩家準備、房主開始 →
  * 送輸入會動 → 觀戰者送輸入被忽略 → 聊天 → 掉線幽靈化 → 結算。
  */
 'use strict';
@@ -127,12 +127,20 @@ async function main() {
   await wait(100);
   ok('觀戰者按準備會被擋', cc.errors.some(t => /觀戰/.test(t)));
 
-  /* 全員準備 → 開跑 */
+  /* 房主不能用準備按鈕開跑，必須等其他玩家準備後明確開始 */
+  a.errors.length = 0;
   a.send({ type: 'ready', ready: true });
   await wait(80);
-  ok('只有一個人準備不會開跑', !a.started);
+  ok('房主按準備會被擋', a.errors.some(t => /開始遊戲/.test(t)));
   b.send({ type: 'ready', ready: true });
-  ok('全員準備就開跑', await a.until('start'));
+  await wait(80);
+  ok('玩家準備不會自動開跑', !a.started);
+  b.errors.length = 0;
+  b.send({ type: 'start' });
+  await wait(80);
+  ok('非房主不能開始遊戲', b.errors.some(t => /只有房主/.test(t)));
+  a.send({ type: 'start' });
+  ok('房主按開始遊戲才開跑', await a.until('start'));
   ok('觀戰者也收到開跑通知', await cc.until('start'));
   ok('開跑資料含 seed 與賽道', !!(a.started.seed && a.started.trackId === 'garden'));
   ok('觀戰者不在參賽名單裡', !a.started.racers.some(r => r.id === cc.id) === false || !cc.started.racers.some(r => r.id === cc.id));

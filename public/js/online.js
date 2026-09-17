@@ -167,11 +167,12 @@
         continue;
       }
       const ch = Chars.get(m.char);
+      const stateText = !m.connected ? '掉線了'
+        : (m.owner ? '房主 ・ 等待其他玩家' : (m.ready ? '準備好了' : '還沒準備'));
       html += '<div class="seat' + (m.ready ? ' ready' : '') + '">' +
         root.Render.wormSvg(ch, 40) +
         '<span><span class="s-name">' + App.escapeHtml(m.name) + '</span>' +
-        '<br><span class="s-tag">' + (m.owner ? '房主 ・ ' : '') +
-        (m.connected ? (m.ready ? '準備好了' : '還沒準備') : '掉線了') + '</span></span>' +
+        '<br><span class="s-tag">' + stateText + '</span></span>' +
         '<span class="spacer"></span>' +
         (room.isOwner && m.id !== O.meId
           ? '<button class="mini-btn" data-kick="' + m.id + '">請他離開</button>' : '') +
@@ -208,18 +209,26 @@
 
     const me = room.members.find(m => m.id === O.meId);
     const isPlayer = me && me.role === 'player';
-    $('room-ready').hidden = !isPlayer;
+    const isOwner = !!room.isOwner;
+    $('room-ready').hidden = !isPlayer || isOwner;
     $('room-ready').textContent = (me && me.ready) ? '取消準備' : '我準備好了';
+    const startBtn = $('room-start');
+    startBtn.hidden = !isOwner;
     $('room-switch').hidden = !!isPlayer;
     $('room-switch').disabled = room.phase === 'racing';
 
-    const ready = seats.filter(m => m.connected && m.ready).length;
-    const need = Math.max(2, seats.filter(m => m.connected).length);
+    const connectedSeats = seats.filter(m => m.connected);
+    const others = connectedSeats.filter(m => m.id !== room.ownerId);
+    const ready = others.filter(m => m.ready).length;
+    const allOthersReady = connectedSeats.length >= 2 && others.every(m => m.ready);
+    startBtn.disabled = room.phase !== 'lobby' || !allOthersReady;
     $('room-hint').textContent = room.phase === 'racing'
       ? '比賽進行中，這一局結束後可以上場。'
-      : (seats.filter(m => m.connected).length < 2
+      : (connectedSeats.length < 2
         ? '至少要兩隻毛毛蟲才能開跑。把邀請連結傳給朋友吧。'
-        : '全員按下準備就開跑（' + ready + '/' + need + '）。');
+        : (isOwner
+          ? (allOthersReady ? '其他玩家都準備好了，按「開始遊戲」吧。' : '等其他玩家準備好，再按「開始遊戲」。')
+          : '按下準備，等房主開始遊戲（' + ready + '/' + connectedSeats.length + '）。'));
 
     $('room-invite').textContent = room.inviteRevoked ? '重新產生邀請連結' : '複製邀請連結';
 
@@ -479,7 +488,7 @@
   function readyAgain() {
     if (!O.net) return false;
     O.net.send({ type: 'again' });
-    O.net.send({ type: 'ready', ready: true });
+    if (!(O.room && O.room.isOwner)) O.net.send({ type: 'ready', ready: true });
     return true;
   }
 
@@ -505,6 +514,9 @@
     $('room-ready').addEventListener('click', () => {
       const me = O.room && O.room.members.find(m => m.id === O.meId);
       O.net.send({ type: 'ready', ready: !(me && me.ready) });
+    });
+    $('room-start').addEventListener('click', () => {
+      if (O.room && O.room.isOwner) O.net.send({ type: 'start' });
     });
     $('room-switch').addEventListener('click', () => {
       const me = O.room && O.room.members.find(m => m.id === O.meId);

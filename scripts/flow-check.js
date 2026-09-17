@@ -21,6 +21,7 @@ const html = read('public/index.html');
 const css = read('public/css/style.css');
 const app = read('public/js/app.js');
 const online = read('public/js/online.js');
+const protocol = read('lib/protocol.js');
 
 console.log('畫面流程與 RWD\n');
 
@@ -148,6 +149,8 @@ ok('觀戰者仍可加入玩家席位', ids.has('room-switch'));
 ok('有邀請連結按鈕', ids.has('room-invite'));
 ok('邀請連結帶 room 與 token 兩個參數', /room=.*t=/.test(online));
 ok('房主才看得到房間設定', /room-owner-only/.test(html) && /ownerBox\.hidden = !room\.isOwner/.test(online));
+ok('房主要按開始遊戲、玩家各自準備',
+  ids.has('room-start') && /room-start/.test(online) && /type: 'start'/.test(online) && /start\(person\)/.test(protocol));
 ok('房間人數上限使用客製化下拉選單',
   ids.has('room-seats-trigger') && ids.has('room-seats-menu') &&
   /id="room-seats"[^>]*hidden/.test(html) && /buildSeatPicker/.test(online) && /\.select-menu\s*\{/.test(css));

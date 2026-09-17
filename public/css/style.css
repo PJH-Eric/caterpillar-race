@@ -73,6 +73,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .big-btn[hidden] { display: none; }   /* display:flex 會蓋掉 [hidden] 的預設值 */
 .big-btn:active { transform: translateY(4px); box-shadow: inset 0 2px 0 rgba(255,255,255,.9), 0 2px 0 rgba(0,0,0,.14); }
 .big-btn:focus-visible { outline: 3px solid var(--sky); outline-offset: 3px; }
+.big-btn:disabled { opacity: .48; cursor: not-allowed; filter: saturate(.55); transform: none; box-shadow: inset 0 2px 0 rgba(255,255,255,.7), 0 2px 0 rgba(0,0,0,.08); }
 .big-btn.primary { background: linear-gradient(180deg, #A9E86B 0%, #6FBB32 100%); color: #1F3A08; }
 .big-btn.ghost { background: linear-gradient(180deg, #FFFFFF 0%, #EDE7D5 100%); color: var(--ink-soft); }
 .big-btn .b-title { font-size: 1.15em; }
@@ -393,7 +394,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .seat .s-tag { font-size: .72em; color: var(--ink-soft); }
 .seat.ready { background: linear-gradient(180deg, #F2FFE0, #DCF5BC); }
 .seat.empty-seat { opacity: .55; font-style: italic; }
-.room-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.room-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; margin-top: 10px; }
 .room-chat .chat-log { max-height: 180px; overflow: auto; display: grid; gap: 3px; font-size: .82rem; margin-bottom: 6px; }
 .seat .spacer { margin-left: auto; }
 
