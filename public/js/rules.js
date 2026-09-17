@@ -110,15 +110,6 @@
    *   seed      亂數種子
    *   allowBad  是否開放負面道具
    */
-  /** 起跑格離終點線還差幾個檢查點（回傳負數；已經在線上或線後就是 0）。
-   * 衝刺賽道（open）沒有終點線可越，開局就算已經起跑了。 */
-  function startOffset(track, node) {
-    if (track.open) return 0;
-    const CP = track.checkpoints;
-    const c0 = Tracks.checkpointOf(track, node);
-    return c0 === 0 ? 0 : -(CP - c0);
-  }
-
   function createRace(opt) {
     const track = opt.track;
     const laps = opt.laps || track.laps;
@@ -141,14 +132,10 @@
 
         node: start.node,
         cp: Tracks.checkpointOf(track, start.node),
-        /* 累計通過的檢查點數（可正可負），圈數由它算出來。
-         * 起跑格在終點線「後面」，所以開局要先補一段負的：
-         * 越過終點線那一刻剛好是 0，繞完一圈是 CP，圈數才會在線上進位。
-         * 不補的話，第一圈會在最後一個檢查點就進位 —— 也就是還沒到終點線
-         * 就被判定完賽，賽道越長、速度越慢差得越明顯。 */
-        cpCount: startOffset(track, start.node),
+        /* 累計通過的檢查點數，圈數由它算出來；起跑時八隻並排在線上，從零開始。 */
+        cpCount: 0,
         lap: 0,
-        started: false,          /* 有沒有越過起跑線開始計第一圈 */
+        started: false,          /* 開跑後開始計第一圈 */
         lapStart: 0,
         lapTimes: [],
         progress: 0,             /* 排名用的累積進度 */

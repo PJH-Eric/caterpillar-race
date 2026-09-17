@@ -17,6 +17,13 @@ function ok(name, cond, extra) {
 }
 function group(name) { console.log('\n' + name); }
 
+function angleDiff(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
 /** 開一局單人測試用的比賽 */
 function race(opt) {
   opt = opt || {};
@@ -83,6 +90,26 @@ for (const def of Tracks.TRACKS) {
   ok(def.id + ' 有八個起跑格', tr.starts.length === 8);
   ok(def.id + ' 起跑格都在跑道上',
     tr.starts.every(s => Tracks.surfaceAt(tr, s.x, s.y) !== Tracks.SURFACE.GRASS));
+
+  const startIndex = tr.startNode === undefined ? tr.starts[0].node : tr.startNode;
+  const startNodes = new Set(tr.starts.map(s => s.node));
+  ok(def.id + ' 八個選手在同一排起跑線', startNodes.size === 1 && tr.starts[0].node === startIndex,
+    Array.from(startNodes).join(','));
+  const origin = tr.nodes[startIndex];
+  const along = tr.starts.map(s => (s.x - origin.x) * origin.tx + (s.y - origin.y) * origin.ty);
+  const lateral = tr.starts.map(s => (s.x - origin.x) * origin.nx + (s.y - origin.y) * origin.ny);
+  ok(def.id + ' 起跑線垂直賽道且沒有前後錯位',
+    Math.max(...along) - Math.min(...along) < 0.001);
+  ok(def.id + ' 起跑席位橫向等距排列',
+    lateral.every((v, i) => i === 0 || Math.abs(v - lateral[i - 1] - (lateral[1] - lateral[0])) < 0.001));
+  const startAngle = Math.atan2(origin.ty, origin.tx);
+  let maxStartTurn = 0;
+  for (let d = 0; d <= Tracks.START_STRAIGHT_NODES; d++) {
+    const i = Tracks.idx(tr, startIndex + d);
+    const a = Math.atan2(tr.nodes[i].ty, tr.nodes[i].tx);
+    maxStartTurn = Math.max(maxStartTurn, Math.abs(angleDiff(a, startAngle)));
+  }
+  ok(def.id + ' 起跑前方保持直線', maxStartTurn < 0.7, maxStartTurn.toFixed(2));
 }
 
 /* 隨機賽道：同一個 seed 一定長出同一張 */
@@ -112,8 +139,7 @@ group('二、基本物理');
 }
 {
   /* 轉向懲罰要直接比速度公式。
-   * 本來是「開直線 vs 一直轉彎，比誰比較快」，但花園小徑的起跑點就在彎道上 ——
-   * 開直線的那一隻直接衝進草地，反而比轉彎的慢，測到的是地形不是轉向懲罰。 */
+   * 不用實際跑直線與彎道比較，避免把賽道地形、起跑位置混進轉向懲罰的測試。 */
   const st = race();
   run(st, 120);
   const r = st.racers[0];
@@ -137,14 +163,12 @@ group('二、基本物理');
     shortTurn.toFixed(3) + ' vs ' + longTurn.toFixed(3));
 }
 {
-  /* 終點線：圈數一定要在「越過終點線那一刻」才進位。
-   * 起跑格排在終點線後面，所以 cpCount 開局是負的；
-   * 少補這一段的話，最後一個檢查點就會進位 —— 還沒到線就被判定完賽。 */
+  /* 終點線：起跑時八隻毛毛蟲並排在線上，第一圈從開跑後的下一個檢查點開始累計。 */
   const st = race({ laps: 2 });
   const r = st.racers[0];
   const CP = st.track.checkpoints;
-  ok('起跑格在終點線後面（檢查點是最後一個）', r.cp === CP - 1, r.cp + '/' + CP);
-  ok('開局的檢查點累計是負的', r.cpCount < 0, r.cpCount);
+  ok('起跑格就在終點線（檢查點是第一個）', r.cp === 0, r.cp + '/' + CP);
+  ok('開局的檢查點累計從零開始', r.cpCount === 0, r.cpCount);
 
   let lastCp = r.cp, crossings = [], lapAt = [];
   let lastLap = r.lap, t = 0;
@@ -155,12 +179,12 @@ group('二、基本物理');
     if (r.lap > lastLap) { lapAt.push(+st.raceT.toFixed(2)); lastLap = r.lap; }
     lastCp = r.cp; t++;
   }
-  ok('越線三次（起跑線 ＋ 兩圈）', crossings.length === 3, crossings.join(','));
+  ok('繞完兩圈越線兩次', crossings.length === 2, crossings.join(','));
   ok('每一圈都剛好在越線那一刻進位',
-    lapAt.length === 2 && lapAt[0] === crossings[1] && lapAt[1] === crossings[2],
-    '進位 ' + lapAt.join(',') + ' vs 越線 ' + crossings.slice(1).join(','));
-  ok('完賽時間等於最後一次越線', Math.abs(r.finishTime - crossings[2]) < 0.02,
-    r.finishTime.toFixed(2) + ' vs ' + crossings[2]);
+    lapAt.length === 2 && lapAt[0] === crossings[0] && lapAt[1] === crossings[1],
+    '進位 ' + lapAt.join(',') + ' vs 越線 ' + crossings.join(','));
+  ok('完賽時間等於最後一次越線', Math.abs(r.finishTime - crossings[1]) < 0.02,
+    r.finishTime.toFixed(2) + ' vs ' + crossings[1]);
 }
 {
   /* 第一名衝線後開始倒數，時間到就收局，還沒到終點的人算沒跑完 */

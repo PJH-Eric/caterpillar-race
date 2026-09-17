@@ -32,6 +32,10 @@
   const NODE_STEP = 14;
   /** 每圈切成幾個檢查點（必須依序通過，杜絕倒車刷圈） */
   const CHECKPOINTS = 12;
+  /** 起跑線前方用來挑選直線段的節點數（每格 14 世界單位）。 */
+  const START_STRAIGHT_NODES = 12;
+  /** 八個選手在同一排時的橫向間距。 */
+  const START_LANE_GAP = 28;
 
   /* ---------- Catmull-Rom ---------- */
 
@@ -104,6 +108,52 @@
       nodes[i].ny = nodes[i].tx;
     }
     return nodes;
+  }
+
+  function angleDiff(a, b) {
+    let d = a - b;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return d;
+  }
+
+  /**
+   * 找一段起點前後都比較直的節點，避免第一幀鏡頭直接落在彎道裡。
+   * 前方權重較高，因為玩家開局看到的是起跑線後面的路。
+   */
+  function chooseStartNode(nodes, open, requested) {
+    if (open || nodes.length < START_STRAIGHT_NODES * 2 + 1) return 0;
+    const n = nodes.length;
+    const preferred = ((Number.isFinite(requested) ? requested : 0) % n + n) % n;
+    const span = Math.min(START_STRAIGHT_NODES, Math.floor((n - 1) / 2));
+    const scoreAt = index => {
+      const base = Math.atan2(nodes[index].ty, nodes[index].tx);
+      let forwardMax = 0, backwardMax = 0, forwardSum = 0, backwardSum = 0;
+      for (let d = 1; d <= span; d++) {
+        const ahead = (index + d) % n;
+        const behind = (index - d + n) % n;
+        const f = Math.abs(angleDiff(Math.atan2(nodes[ahead].ty, nodes[ahead].tx), base));
+        const b = Math.abs(angleDiff(Math.atan2(nodes[behind].ty, nodes[behind].tx), base));
+        forwardMax = Math.max(forwardMax, f);
+        backwardMax = Math.max(backwardMax, b);
+        forwardSum += f;
+        backwardSum += b;
+      }
+      return forwardMax * 2 + forwardSum * 0.2 + backwardMax + backwardSum * 0.1;
+    };
+
+    let best = preferred;
+    let bestScore = scoreAt(best);
+    for (let i = 0; i < n; i++) {
+      const score = scoreAt(i);
+      const distance = Math.min(Math.abs(i - preferred), n - Math.abs(i - preferred));
+      const bestDistance = Math.min(Math.abs(best - preferred), n - Math.abs(best - preferred));
+      if (score < bestScore - 1e-6 || (Math.abs(score - bestScore) <= 1e-6 && distance < bestDistance)) {
+        best = i;
+        bestScore = score;
+      }
+    }
+    return best;
   }
 
   /* ---------- 地形網格 ---------- */
@@ -328,24 +378,19 @@
       }
     }
 
-    /* 起跑格：終點線前方，依席位排成兩列交錯 */
-    const startNode = open ? 0 : (def.startNode || 0);
+    /* 起跑格：八個選手在同一條線上並排，起點挑在一段較直的路上。 */
+    const startNode = chooseStartNode(nodes, open, def.startNode);
     const grid0 = nodes[startNode];
     const starts = [];
+    const laneGap = Math.min(START_LANE_GAP, Math.max(START_LANE_GAP - 2, grid0.w * 0.24));
+    const laneCenter = (8 - 1) / 2;
     for (let s = 0; s < 8; s++) {
-      const row = Math.floor(s / 2), col = s % 2;
-      const back = -(row * 34 + 24);
-      const side = (col === 0 ? -1 : 1) * grid0.w * 0.34;
-      const rawIdx = startNode + Math.round(back / NODE_STEP);
-      const sIdx = open
-        ? Math.max(0, Math.min(nodes.length - 1, startNode + Math.round((-back) / NODE_STEP)))
-        : ((rawIdx % nodes.length) + nodes.length) % nodes.length;
-      const nd = nodes[sIdx];
+      const side = (s - laneCenter) * laneGap;
       starts.push({
-        x: nd.x + nd.nx * side,
-        y: nd.y + nd.ny * side,
-        angle: Math.atan2(nd.ty, nd.tx),
-        node: sIdx
+        x: grid0.x + grid0.nx * side,
+        y: grid0.y + grid0.ny * side,
+        angle: Math.atan2(grid0.ty, grid0.tx),
+        node: startNode
       });
     }
 
@@ -358,7 +403,7 @@
       laps: def.laps || 3,
       random: !!def.random,
       seed: def.seed || def.id,
-      nodes, shortcuts, grid, bounds, items, starts,
+      nodes, shortcuts, grid, bounds, items, starts, startNode,
       rocks: placeRocks((def.rocks || []).map(r => [r[0] * grow, r[1] * grow, r[2]]), nodes, grid)
         .map(r => ({ x: r[0], y: r[1], r: r[2] })),
       mud: mudList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
@@ -405,7 +450,6 @@
     return best;
   }
 
-  /** 節點 index → 檢查點 index */
   /**
    * 節點索引的正規化。
    * 環狀賽道是繞回去，衝刺賽道（open）是夾在兩端 ——
@@ -418,8 +462,14 @@
     return ((i % n) + n) % n;
   }
 
+  /** 節點 index → 以起跑點為零點的檢查點 index */
   function checkpointOf(track, nodeIndex) {
-    return Math.floor(nodeIndex / track.nodes.length * CHECKPOINTS) % CHECKPOINTS;
+    const n = track.nodes.length;
+    const origin = track.open ? 0 : (track.startNode || 0);
+    const relative = track.open
+      ? Math.max(0, Math.min(n - 1, nodeIndex - origin))
+      : ((nodeIndex - origin) % n + n) % n;
+    return Math.floor(relative / n * CHECKPOINTS) % CHECKPOINTS;
   }
 
   /** 賽道中心線上離某點最近的橫向偏移（負＝左、正＝右），給 AI 與畫面用 */
@@ -972,7 +1022,7 @@
   }
 
   return {
-    SURFACE, CELL, NODE_STEP, CHECKPOINTS,
+    SURFACE, CELL, NODE_STEP, CHECKPOINTS, START_STRAIGHT_NODES, START_LANE_GAP,
     TRACKS, BY_ID, build, get, list, randomDef, SHAPES, SHAPE_NAME,
     surfaceAt, nodeAt, checkpointOf, lateralOf, sample, addTangents, idx
   };

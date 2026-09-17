@@ -46,7 +46,7 @@ for (const def of Tracks.TRACKS) {
 }
 
 console.log('\n  隨機賽道（120 個 seed）');
-let worst = 0, bestT = 999, badSeeds = [];
+let worst = 0, bestT = 999, badSeeds = [], badStarts = [];
 for (let i = 0; i < 120; i++) {
   const seed = 'rnd-' + i;
   const tr = Tracks.get('random', seed);
@@ -54,6 +54,20 @@ for (let i = 0; i < 120; i++) {
   for (const nd of tr.nodes) if (Tracks.surfaceAt(tr, nd.x, nd.y) !== Tracks.SURFACE.GRASS) onCenter++;
   if (onCenter !== tr.nodes.length) badSeeds.push(seed + '(斷線)');
   if (tr.length < 2000 || tr.length > 7600) badSeeds.push(seed + '(長度 ' + Math.round(tr.length) + ')');
+  const startNodes = new Set(tr.starts.map(s => s.node));
+  const start = tr.nodes[tr.startNode];
+  const startAngle = Math.atan2(start.ty, start.tx);
+  let maxStartTurn = 0;
+  for (let d = 0; d <= Tracks.START_STRAIGHT_NODES; d++) {
+    const nd = tr.nodes[Tracks.idx(tr, tr.startNode + d)];
+    let da = Math.atan2(nd.ty, nd.tx) - startAngle;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    maxStartTurn = Math.max(maxStartTurn, Math.abs(da));
+  }
+  if (startNodes.size !== 1 || maxStartTurn >= 0.7) {
+    badStarts.push(seed + '(節點 ' + Array.from(startNodes).join(',') + '，彎 ' + maxStartTurn.toFixed(2) + ')');
+  }
   /* 抽樣實際開開看，每 10 個 seed 跑一次 */
   if (i % 10 === 0) {
     const r = driveOneLap(tr, seed);
@@ -64,6 +78,7 @@ for (let i = 0; i < 120; i++) {
 console.log('    抽樣一圈時間 ' + bestT.toFixed(1) + 's ～ ' + worst.toFixed(1) + 's');
 ok('120 個隨機 seed 都長得出可以跑的賽道', badSeeds.length === 0, badSeeds.slice(0, 6).join(', '));
 ok('隨機賽道一圈不會誇張地長', worst < 75, worst.toFixed(1));
+ok('隨機賽道起跑同排且前段直線', badStarts.length === 0, badStarts.slice(0, 4).join(', '));
 
 /* 版型：不能每一張都是圓環 */
 {

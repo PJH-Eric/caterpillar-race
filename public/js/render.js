@@ -498,8 +498,9 @@
     }
 
     /* 終點線：黑白格，橫跨賽道。
-     * 環狀賽道的終點就是起點（node 0）；衝刺賽道的終點在最後一個節點。 */
-    const n0 = track.nodes[track.open ? track.nodes.length - 2 : 0];
+     * 環狀賽道的終點就是起點；衝刺賽道的終點在最後一個節點。 */
+    const finishNode = track.open ? track.nodes.length - 2 : (track.startNode || 0);
+    const n0 = track.nodes[finishNode];
     const f0 = P.fwd(n0.x, n0.y);
     if (f0 > NEAR && f0 < FAR) {
       out.push({
