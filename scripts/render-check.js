@@ -79,7 +79,7 @@ ok('程式與畫面裡沒有 emoji 文字美術', dirty.length === 0, dirty.join
 const render = read('public/js/render.js');
 ok('有透視投影器', /function projector/.test(render) && /focal/.test(render));
 ok('地面是 z = 0 的平面，物件靠高度抬起來', /cam\.z - \(wz/.test(render));
-ok('有近平面裁剪（f 太小投影會飛出去）', /NEAR/.test(render) && /lerpNode/.test(render));
+ok('有近平面裁剪（f 太小投影會飛出去）', /NEAR/.test(render) && /function clipNear/.test(render));
 ok('有視錐裁切（賽道繞回鏡頭旁邊不能畫）', /視錐裁切/.test(render));
 ok('有天空與遠山', /function drawSky/.test(render) && /遠山/.test(render));
 ok('有地平線附近的霧化', /function drawFog/.test(render));
@@ -123,6 +123,51 @@ for (const name of ['gearIcon', 'closeIcon', 'arrowIcon', 'flagIcon', 'starIcon'
 }
 ok('左右箭頭互為鏡像且置中', svgui.includes("'M34 10 14 24 34 38z'") && svgui.includes("'M14 10 34 24 14 38z'"));
 ok('選角與結算用的 SVG 毛毛蟲還在', /function wormSvg/.test(render));
+
+/* ---------- 急彎路面：實際走投影與多邊形繪製路徑 ---------- */
+function cross(a, b, c) {
+  return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+}
+function crossed(a, b, c, d) {
+  return cross(a, b, c) * cross(a, b, d) < -1e-6 &&
+    cross(c, d, a) * cross(c, d, b) < -1e-6;
+}
+for (const id of ['garden', 'candy', 'snow']) {
+  const track = Tracks.get(id);
+  let folds = 0, behind = 0;
+  for (let i = 0; i < track.nodes.length; i += 7) {
+    const nd = track.nodes[i];
+    const cam = { x: nd.x - nd.tx * 155, y: nd.y - nd.ty * 155,
+      a: Math.atan2(nd.ty, nd.tx), z: 80 };
+    const P = Render.projector({ w: 1280, h: 720 }, cam);
+    const pt = P.pt;
+    P.pt = (x, y, z) => {
+      if (P.fwd(x, y) < Render.NEAR - 1e-5) behind++;
+      return pt(x, y, z);
+    };
+    const faces = [];
+    Render.trackFaces(P, track, i, { road: '#aaa', roadEdge: '#fff' }, faces);
+    let vertices = [];
+    const ctx = {
+      beginPath() { vertices = []; },
+      moveTo(x, y) { vertices.push([x, y]); },
+      lineTo(x, y) { vertices.push([x, y]); },
+      closePath() {},
+      fill() {
+        for (let k = 0; k < vertices.length; k++) {
+          for (let j = k + 2; j < vertices.length; j++) {
+            if (k === 0 && j === vertices.length - 1) continue;
+            if (crossed(vertices[k], vertices[(k + 1) % vertices.length],
+              vertices[j], vertices[(j + 1) % vertices.length])) folds++;
+          }
+        }
+      }
+    };
+    for (const face of faces) { face.edge(ctx); face.road(ctx); }
+  }
+  ok(id + ' 急彎路面不交叉，路緣不投影到鏡頭後方',
+    folds === 0 && behind === 0, folds + ' 個交叉、' + behind + ' 個鏡頭後方頂點');
+}
 
 console.log('\n美術資產：' + pass + ' 通過，' + fail + ' 失敗');
 process.exit(fail ? 1 : 0);

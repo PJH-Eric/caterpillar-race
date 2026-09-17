@@ -738,11 +738,15 @@
     if (!G.lite) R.drawGroundTexture(ctx, P, G.theme);
 
     /* 地面：賽道分段 ＋ 泥巴／加速帶／黏液／終點線，一起由遠到近畫 */
-    const ground = [];
-    R.trackFaces(P, G.track, me.node, G.theme, ground);
-    R.trackDecals(P, G.track, G.theme, st, ground);
-    ground.sort((a, b) => b.f - a.f);
-    for (const g of ground) g.draw(ctx);
+    const road = [];
+    R.trackFaces(P, G.track, me.node, G.theme, road);
+    R.trackDecals(P, G.track, G.theme, st, road);
+    road.sort((a, b) => b.f - a.f);
+    for (const face of road) if (face.edge) face.edge(ctx);
+    for (const face of road) {
+      if (face.road) face.road(ctx);
+      else face.draw(ctx);
+    }
 
     R.drawFog(ctx, P, G.theme);
 

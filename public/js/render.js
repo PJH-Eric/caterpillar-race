@@ -310,15 +310,6 @@
    *  相鄰段用兩種色階交替，跑起來才看得出速度與距離。
    * ================================================================ */
 
-  function lerpNode(a, b, t) {
-    return {
-      x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t,
-      w: a.w + (b.w - a.w) * t,
-      nx: a.nx + (b.nx - a.nx) * t, ny: a.ny + (b.ny - a.ny) * t,
-      i: a.i
-    };
-  }
-
   /** 賽道在某節點彎得多兇（決定要不要畫紅白緣石） */
   function curveAt(nodes, i, span, open) {
     const n = nodes.length;
@@ -328,77 +319,106 @@
   }
 
   function makeSegDraw(P, a, b, theme, band, corner) {
-    return function (ctx) {
-      function quad(extra, fill) {
-        const wa = a.w + extra, wb = b.w + extra;
-        const p1 = P.pt(a.x + a.nx * wa, a.y + a.ny * wa, 0);
-        const p2 = P.pt(b.x + b.nx * wb, b.y + b.ny * wb, 0);
-        const p3 = P.pt(b.x - b.nx * wb, b.y - b.ny * wb, 0);
-        const p4 = P.pt(a.x - a.nx * wa, a.y - a.ny * wa, 0);
-        ctx.fillStyle = fill;
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
-        ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y);
-        ctx.closePath(); ctx.fill();
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len, ny = dx / len;
+    function polygon(ctx, corners, fill) {
+      const clipped = clipNear(P, corners);
+      if (clipped.length < 3) return;
+      const points = clipped.map(p => P.pt(p.x, p.y, 0));
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+      ctx.closePath(); ctx.fill();
+    }
+
+    function quad(ctx, extra, fill) {
+      const wa = a.w + extra, wb = b.w + extra;
+      polygon(ctx, [
+        { x: a.x + nx * wa, y: a.y + ny * wa },
+        { x: b.x + nx * wb, y: b.y + ny * wb },
+        { x: b.x - nx * wb, y: b.y - ny * wb },
+        { x: a.x - nx * wa, y: a.y - ny * wa }
+      ], fill);
+    }
+
+    function join(ctx, extra, fill) {
+      /* 相鄰線段的法線不同；在節點補圓角，急彎外側才不會露出草地。 */
+      const corners = [];
+      for (let i = 0; i < 12; i++) {
+        const angle = i * TAU / 12;
+        corners.push({ x: b.x + Math.cos(angle) * (b.w + extra),
+          y: b.y + Math.sin(angle) * (b.w + extra) });
       }
-      /* 只畫緣石與路面。
-       * 本來每一段還會畫一條 GRASS_SPAN 寬的草地帶（OutRun 那種做法），
-       * 但那條草地帶投影出來是一條橫跨整個畫面的長條 ——
-       * 賽道繞回來的時候，近處那段的草地帶就把遠處的賽道整個蓋掉了。
-       * 草地改成 drawGroundBands() 畫成不隨賽道走的水平條紋。 */
-      quad(RUMBLE, corner ? (band ? '#E2564E' : '#FDF6EA') : theme.roadEdge);
-      quad(0, theme.road);
-      /* 速度感靠很淡的深色條紋疊上去就好。
-       * 本來是 road / roadDark 兩色互換，夜光蘑菇那種色差大的主題會變成斑馬線。 */
-      if (band) {
-        ctx.save();
-        ctx.globalAlpha = 0.09;
-        quad(0, '#000000');
-        ctx.restore();
+      polygon(ctx, corners, fill);
+    }
+
+    function edge(ctx) {
+      const color = corner ? (band ? '#E2564E' : '#FDF6EA') : theme.roadEdge;
+      quad(ctx, RUMBLE, color);
+      join(ctx, RUMBLE, color);
+    }
+
+    function road(ctx) {
+      quad(ctx, 0, theme.road);
+      join(ctx, 0, theme.road);
+    }
+
+    return {
+      edge, road,
+      draw(ctx) {
+        edge(ctx);
+        road(ctx);
       }
     };
+  }
+
+  /** 以整個路面多邊形裁切近平面，不能只裁中心線。 */
+  function clipNear(P, corners) {
+    const out = [];
+    for (let i = 0; i < corners.length; i++) {
+      const a = corners[i], b = corners[(i + 1) % corners.length];
+      const fa = P.fwd(a.x, a.y), fb = P.fwd(b.x, b.y);
+      if (fa >= NEAR) out.push(a);
+      if ((fa < NEAR) !== (fb < NEAR)) {
+        const t = (NEAR - fa) / (fb - fa);
+        out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+      }
+    }
+    return out;
   }
 
   /** 收集賽道的地面多邊形。回傳的東西由呼叫端依距離排序後畫。 */
   function trackFaces(P, track, fromNode, theme, out) {
     const nodes = track.nodes, n = nodes.length;
-    const idxs = [];
-    /* 近處畫細、遠處畫粗（LOD），不然遠方在畫一堆一像素的四邊形 */
-    for (let i = -BEHIND_NODES; i < AHEAD_NODES;) {
-      idxs.push(i);
-      i += i < 18 ? 1 : (i < 46 ? 3 : 7);
-    }
-    idxs.push(AHEAD_NODES);
-
-    for (let k = 0; k < idxs.length - 1; k++) {
+    /* 每段用相鄰節點；跨過急彎會把路面拉成穿越草地的四邊形。 */
+    for (let i = -BEHIND_NODES; i < AHEAD_NODES; i++) {
       const wrap = j => (track.open ? Math.max(0, Math.min(n - 1, j)) : ((j % n) + n) % n);
-      const ia = wrap(fromNode + idxs[k]);
-      const ib = wrap(fromNode + idxs[k + 1]);
+      const ia = wrap(fromNode + i);
+      const ib = wrap(fromNode + i + 1);
       if (ia === ib) continue;                /* 衝刺賽道夾到端點之後會重複，跳過 */
       const A = nodes[ia], B = nodes[ib];
-      let fa = P.fwd(A.x, A.y), fb = P.fwd(B.x, B.y);
-      if (fa < NEAR && fb < NEAR) continue;
-      if (fa > FAR && fb > FAR) continue;
+      const fa = P.fwd(A.x, A.y), fb = P.fwd(B.x, B.y);
+      if (fa + A.w + RUMBLE < NEAR && fb + B.w + RUMBLE < NEAR) continue;
+      if (fa - A.w - RUMBLE > FAR && fb - B.w - RUMBLE > FAR) continue;
 
       /* 視錐裁切：賽道是封閉迴圈，往前數一百多個節點之後會繞回鏡頭旁邊，
        * 那些段的 f 很小、橫向偏移卻是好幾千，畫出來就是一片橫跨畫面的破面。
        * 兩端都落在視野外（橫向／前方 > 1.9，約 62 度）就整段跳過。 */
       const ra = -(A.x - P.cam.x) * P.sin + (A.y - P.cam.y) * P.cos;
       const rb = -(B.x - P.cam.x) * P.sin + (B.y - P.cam.y) * P.cos;
-      const wa2 = A.w + GRASS_SPAN * 0, wb2 = B.w;
+      const wa2 = A.w + RUMBLE, wb2 = B.w + RUMBLE;
       const outA = fa < NEAR || Math.abs(ra) / Math.max(fa, 1) > 1.9 + wa2 / Math.max(fa, 1);
       const outB = fb < NEAR || Math.abs(rb) / Math.max(fb, 1) > 1.9 + wb2 / Math.max(fb, 1);
       if (outA && outB) continue;
 
-      let a = { x: A.x, y: A.y, w: A.w, nx: A.nx, ny: A.ny, i: ia };
-      let b = { x: B.x, y: B.y, w: B.w, nx: B.nx, ny: B.ny, i: ib };
-      /* 近平面裁剪：太近的那一端往另一端拉到 NEAR */
-      if (fa < NEAR) { a = lerpNode(a, b, (NEAR - fa) / (fb - fa)); fa = NEAR; }
-      if (fb < NEAR) { b = lerpNode(b, a, (NEAR - fb) / (fa - fb)); fb = NEAR; }
-
+      const segment = makeSegDraw(P, A, B, theme, Math.floor(ia / 5) % 2, curveAt(nodes, ia, 5, track.open) > 0.14);
       out.push({
         f: (fa + fb) / 2,
-        draw: makeSegDraw(P, a, b, theme, Math.floor(ia / 5) % 2, curveAt(nodes, ia, 5, track.open) > 0.14)
+        draw: segment.draw,
+        edge: segment.edge,
+        road: segment.road
       });
     }
   }
