@@ -375,6 +375,7 @@
     G.trails = {};
     G.bannerKey = '';
     G.camVel = null;
+    G.camRate = 0;
     hideRaceResult();
     { const rp = $('room-result'); if (rp) rp.hidden = true; }
     if (G.resultTimer) { root.clearTimeout(G.resultTimer); G.resultTimer = 0; }
@@ -598,17 +599,31 @@
 
   /* 三段視野：鏡頭拉多遠、架多高。拉遠看得到更多前方彎道，也比較不暈。 */
   const CAM_VIEWS = [
-    { back: 124, height: 54 },    /* 近一點：貼著毛毛蟲，最有速度感 */
-    { back: 158, height: 72 },    /* 普通：看得到毛毛蟲前面那一段路 */
-    { back: 212, height: 104 }    /* 遠一點：看得到更多前方彎道 */
+    { back: 128, height: 60 },    /* 近一點：貼著毛毛蟲，最有速度感 */
+    { back: 170, height: 84 },    /* 普通：看得到毛毛蟲前面那一段路 */
+    { back: 224, height: 116 }    /* 遠一點：看得到更多前方彎道，轉彎時最不暈 */
   ];
   /* 鏡頭偏航要跟誰：
    *   track  跟前方賽道的方向（預設）—— 蠕動的左右擺完全不會傳到畫面
    *   chase  跟毛毛蟲的車頭 —— 比較跟手，但扭的時候畫面會跟著晃
    */
   const CAM_YAW_LERP = { track: 0.16, chase: 0.30 };
-  const CAM_MAX_RATE = 1.7;      /* 每秒最多轉幾弧度，突然的方向變化才不會甩鏡頭 */
   const CAM_POS_LERP = 0.10;     /* 位置的跟隨速度，慢一點才不會被蠕動帶著抖 */
+
+  /* 鏡頭轉動的阻尼 —— 會暈的原因不是「轉」，是轉得又快又急又停不住。
+   * 賽道現在很寬，鏡頭沒必要每個彎都整個甩過去：讓毛毛蟲在畫面裡歪個
+   * 二三十度，前面的路一樣看得清清楚楚，畫面卻穩很多。
+   *   CAM_MAX_RATE  每秒最多轉幾弧度（0.44 ≈ 25 度／秒）
+   *   CAM_RATE_LERP 轉速本身也平滑，起轉、收轉都是漸進的，不會突然開始或突然停
+   *   CAM_LAG_MAX   鏡頭最多落後行進方向幾弧度（0.50 ≈ 29 度）；超過才准轉快一點
+   *   CAM_LAG_BOOST 超過之後每多一弧度，轉速上限放寬幾倍（連續髮夾才跟得上）
+   *   CAM_DEAD      角差小於這個就完全不轉，殘餘的微抖直接消掉
+   */
+  const CAM_MAX_RATE = 0.44;
+  const CAM_RATE_LERP = 0.085;
+  const CAM_LAG_MAX = 0.50;
+  const CAM_LAG_BOOST = 3.5;
+  const CAM_DEAD = 0.014;
 
   function camView() { return CAM_VIEWS[G.settings.zoomLevel] || CAM_VIEWS[1]; }
 
@@ -642,6 +657,10 @@
    * 時間常數約 0.55 秒，蓋掉一個完整的蠕動週期還有餘裕，彎道也還跟得上。
    */
   const CAM_VEL_LERP = 0.030;
+  /* 提前量：鏡頭的目標方向裡混多少「前面那段路的方向」。
+   * 一般賽車的鏡頭在進彎之前就開始轉了，整個彎的旋轉被攤在更長的時間裡，
+   * 所以尖峰轉速低很多，而且因為是「先轉」，鏡頭也不會落在車子後面。 */
+  const CAM_LOOK_MIX = 0.58;
 
   function chaseAxis(me, snapTo) {
     const hx = Math.cos(me.angle), hy = Math.sin(me.angle);
@@ -649,8 +668,27 @@
     /* 速度太小、或正在倒車時，行進方向沒有意義（倒車還會讓鏡頭整個翻半圈），
      * 這兩種情況一律聽車頭的 */
     const useVel = sp > 25 && (me.vx * hx + me.vy * hy) > 0;
-    const tx = useVel ? me.vx / sp : hx;
-    const ty = useVel ? me.vy / sp : hy;
+    let tx = useVel ? me.vx / sp : hx;
+    let ty = useVel ? me.vy / sp : hy;
+
+    /* 混一點前方賽道的方向進來（倒著開或跑出去太遠時不混，不然畫面會翻過去） */
+    if (useVel && G.track) {
+      const nodes = G.track.nodes;
+      const ahead = Math.round((72 + me.speed * 0.42) / Tracks.NODE_STEP);
+      const nd = nodes[Tracks.idx(G.track, me.node + ahead)];
+      if (nd) {
+        /* 權重要漸進，不能用開關 —— 開關一翻，目標方向瞬間跳一大塊，
+         * 鏡頭補那一下就是在甩鏡頭 */
+        const dot = nd.tx * tx + nd.ty * ty;
+        const w = CAM_LOOK_MIX * Math.max(0, Math.min(1, (dot - 0.05) / 0.45));
+        if (w > 0) {
+          tx += (nd.tx - tx) * w;
+          ty += (nd.ty - ty) * w;
+          const l = Math.hypot(tx, ty);
+          if (l > 1e-4) { tx /= l; ty /= l; }
+        }
+      }
+    }
 
     let sm = G.camVel;
     if (!sm || snapTo) sm = G.camVel = { x: tx, y: ty };
@@ -692,11 +730,20 @@
     while (dh < -Math.PI) dh += Math.PI * 2;
     if (snapTo || G.settings.reduceMotion) {
       G.cam.h = axis;
+      G.camRate = 0;
     } else {
       const lerp = CAM_YAW_LERP[G.settings.camMode] || CAM_YAW_LERP.track;
-      const want = dh * lerp;
-      const cap = CAM_MAX_RATE * dt;
-      G.cam.h += Math.abs(want) > cap ? Math.sign(want) * cap : want;
+      /* 想要的轉速（弧度／秒）：把角差換算成「照這個速度轉多久會補完」 */
+      let want = Math.abs(dh) < CAM_DEAD ? 0 : dh * lerp / Math.max(dt, 1 / 240);
+      /* 轉速上限：平常慢慢轉；只有鏡頭落後車頭太多（連續髮夾）才放寬 */
+      const lag = Math.abs(dh);
+      let cap = CAM_MAX_RATE;
+      if (lag > CAM_LAG_MAX) cap *= 1 + (lag - CAM_LAG_MAX) * CAM_LAG_BOOST;
+      if (want > cap) want = cap; else if (want < -cap) want = -cap;
+      /* 轉速本身再平滑一次，畫面才不會突然開始轉、又突然煞住 */
+      const rate = G.camRate || 0;
+      G.camRate = rate + (want - rate) * CAM_RATE_LERP;
+      G.cam.h += G.camRate * dt;
     }
     if (G.cam.h > Math.PI) G.cam.h -= Math.PI * 2;
     if (G.cam.h < -Math.PI) G.cam.h += Math.PI * 2;

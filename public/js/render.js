@@ -318,10 +318,23 @@
     return Math.abs(Math.atan2(a.tx * b.ty - a.ty * b.tx, a.tx * b.tx + a.ty * b.ty));
   }
 
-  function makeSegDraw(P, a, b, theme, band, corner) {
+  function makeSegDraw(P, a, b, c, theme, band, corner) {
     const dx = b.x - a.x, dy = b.y - a.y;
     const len = Math.hypot(dx, dy) || 1;
     const nx = -dy / len, ny = dx / len;
+    /* 下一段的法線：兩段之間在節點 b 會夾出一個楔形缺口，等一下要補起來。
+     * 以前是補一個整圓，圓會凸出路面兩側，路邊就變成一顆一顆的扇貝邊
+     *（玩家看到的「賽道線鋸齒狀」）。只補真正缺的那個扇形就不會了。 */
+    let mx = nx, my = ny, sweep = 0;
+    if (c) {
+      const ex = c.x - b.x, ey = c.y - b.y;
+      const el = Math.hypot(ex, ey);
+      if (el > 1e-6) {
+        mx = -ey / el; my = ex / el;
+        sweep = Math.atan2(nx * my - ny * mx, nx * mx + ny * my);
+      }
+    }
+
     function polygon(ctx, corners, fill) {
       const clipped = clipNear(P, corners);
       if (clipped.length < 3) return;
@@ -344,12 +357,17 @@
     }
 
     function join(ctx, extra, fill) {
-      /* 相鄰線段的法線不同；在節點補圓角，急彎外側才不會露出草地。 */
-      const corners = [];
-      for (let i = 0; i < 12; i++) {
-        const angle = i * TAU / 12;
-        corners.push({ x: b.x + Math.cos(angle) * (b.w + extra),
-          y: b.y + Math.sin(angle) * (b.w + extra) });
+      /* 只補外側的扇形：從這一段的法線掃到下一段的法線，半徑就是路寬。
+       * 左彎的外側是右邊，右彎的外側是左邊；內側本來就被兩段蓋住，不用也不能補。 */
+      if (Math.abs(sweep) < 2e-3) return;
+      const r = b.w + extra;
+      const side = sweep > 0 ? -1 : 1;
+      const a0 = Math.atan2(ny * side, nx * side);
+      const steps = Math.max(2, Math.ceil(Math.abs(sweep) / 0.14));
+      const corners = [{ x: b.x, y: b.y }];
+      for (let i = 0; i <= steps; i++) {
+        const ang = a0 + sweep * (i / steps);
+        corners.push({ x: b.x + Math.cos(ang) * r, y: b.y + Math.sin(ang) * r });
       }
       polygon(ctx, corners, fill);
     }
@@ -413,7 +431,8 @@
       const outB = fb < NEAR || Math.abs(rb) / Math.max(fb, 1) > 1.9 + wb2 / Math.max(fb, 1);
       if (outA && outB) continue;
 
-      const segment = makeSegDraw(P, A, B, theme, Math.floor(ia / 5) % 2, curveAt(nodes, ia, 5, track.open) > 0.14);
+      const C = nodes[wrap(fromNode + i + 2)];
+      const segment = makeSegDraw(P, A, B, C === B ? null : C, theme, Math.floor(ia / 5) % 2, curveAt(nodes, ia, 5, track.open) > 0.14);
       out.push({
         f: (fa + fb) / 2,
         draw: segment.draw,

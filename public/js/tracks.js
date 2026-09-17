@@ -70,7 +70,16 @@
     }
     if (!closed) dense.push(ctrl[n - 1].slice());
 
-    /* 依距離重新取樣：讓每個節點間隔固定，進度計算才準 */
+    let nodes = resample(dense, closed);
+    /* 控制點被切角之後，Catmull-Rom 在角上會擠出半徑只有十幾單位的尖角：
+     * 中心線一折，畫出來的路面就是一片一片歪掉的鋸齒。先把中心線的曲率壓下來，
+     * 之後畫路面、鋪地表格、AI 走線用的都是同一條順的線。 */
+    nodes = smoothCurve(nodes, closed);
+    return resample(nodes.map(nd => [nd.x, nd.y, nd.w]), closed);
+  }
+
+  /** 依距離重新取樣成等間距節點，進度計算才準 */
+  function resample(dense, closed) {
     const nodes = [];
     let carry = 0;
     for (let i = 0; i < dense.length - 1; i++) {
@@ -86,12 +95,82 @@
       }
       carry = t - seg;
     }
+    if (closed && dense.length > 2) {
+      /* 閉環最後一段要接回起點 */
+      const a = dense[dense.length - 1], b = dense[0];
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const seg = Math.sqrt(dx * dx + dy * dy);
+      let t = carry;
+      while (t < seg) {
+        const k = t / seg;
+        nodes.push({ x: a[0] + dx * k, y: a[1] + dy * k, w: a[2] + (b[2] - a[2]) * k });
+        t += NODE_STEP;
+      }
+    }
     /* 閉環時，如果最後一個節點離起點太近就砍掉，避免重複 */
     if (closed && nodes.length > 2) {
       const f = nodes[0], l = nodes[nodes.length - 1];
       if (Math.hypot(l.x - f.x, l.y - f.y) < NODE_STEP * 0.5) nodes.pop();
     }
     return nodes;
+  }
+
+  /* 中心線平滑：把等間距節點跟一個高斯核做一次卷積。
+   *
+   * 控制點被切角之後，Catmull-Rom 會在角上擠出半徑只有十幾單位的尖角；
+   * 中心線一折，路面畫出來就是一片一片歪掉的鋸齒（「賽道線鋸齒狀」就是這個）。
+   * 高斯把波長比 SMOOTH_SIGMA 短的東西整個抹掉，尖角一定會變成圓弧，
+   * 直線完全不受影響，大彎只會往內縮 σ²/2R（幾十單位的彎大概 3%），
+   * 所以賽道的形狀、長度、難度都還是原來那樣。
+   * 一次算完，不用迭代，每張賽道的結果也都是固定的。 */
+  const SMOOTH_SIGMA = 42;        /* 高斯的標準差（單位）；也大致是磨出來的最小轉彎半徑 */
+
+  function polyLength(nodes, closed) {
+    let L = 0;
+    for (let i = 0; i + 1 < nodes.length; i++) L += Math.hypot(nodes[i + 1].x - nodes[i].x, nodes[i + 1].y - nodes[i].y);
+    if (closed && nodes.length > 1) L += Math.hypot(nodes[0].x - nodes[nodes.length - 1].x, nodes[0].y - nodes[nodes.length - 1].y);
+    return L;
+  }
+
+  function smoothCurve(nodes, closed) {
+    /* 抹得太兇的話，來回折的兩段路有機會被平均在一起、整個塌掉。
+     * 長度掉超過一成就換小一點的 σ 再來一次，形狀一定保得住。 */
+    const before = polyLength(nodes, closed);
+    for (let sigma = SMOOTH_SIGMA; sigma >= SMOOTH_SIGMA / 4; sigma /= 2) {
+      const out = blurCurve(nodes, closed, sigma);
+      if (out === nodes || polyLength(out, closed) >= before * 0.9) return out;
+    }
+    return nodes;
+  }
+
+  function blurCurve(nodes, closed, sigma) {
+    const n = nodes.length;
+    const sig = sigma / NODE_STEP;
+    const half = Math.ceil(sig * 3);
+    if (n < half * 2 + 4) return nodes;
+    const kern = [];
+    let sum = 0;
+    for (let j = -half; j <= half; j++) { const v = Math.exp(-(j * j) / (2 * sig * sig)); kern.push(v); sum += v; }
+    for (let i = 0; i < kern.length; i++) kern[i] /= sum;
+    const wrap = i => (closed ? ((i % n) + n) % n : Math.max(0, Math.min(n - 1, i)));
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+      /* 開放賽道的頭尾要釘住，不然起點終點會被magnet往內拉 */
+      let x = 0, y = 0, w = 0;
+      for (let j = -half; j <= half; j++) {
+        const nd = nodes[wrap(i + j)], k = kern[j + half];
+        x += nd.x * k; y += nd.y * k; w += nd.w * k;
+      }
+      if (!closed) {
+        /* 端點附近逐漸回到原位，頭尾才不會被往內拉 */
+        const edge = Math.min(i, n - 1 - i) / half;
+        const t = Math.min(1, Math.max(0, edge));
+        const nd = nodes[i];
+        x = nd.x + (x - nd.x) * t; y = nd.y + (y - nd.y) * t; w = nd.w + (w - nd.w) * t;
+      }
+      out[i] = { x: x, y: y, w: w };
+    }
+    return out;
   }
 
   /** 幫每個節點算出切線方向與法線（畫邊線、擺道具、AI 走線都要用） */
