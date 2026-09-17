@@ -511,6 +511,8 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   .summary .sum-body { display: grid; grid-template-columns: auto auto 1fr; gap: 4px 10px; align-items: center; }
   .summary .sum-body[hidden] { display: none; }
   .summary .standings, .summary .sum-note { grid-column: 1 / -1; }
+  /* 直向手機的資訊欄不能吃掉三分之一個畫面，名次表限高就好（完整的在小地圖上） */
+  .summary .standings { max-height: 4.8em; overflow: hidden; }
   .summary .wiggle-gauge { grid-column: 1 / -1; margin: 2px 0; }
   .minimap { top: calc(var(--safe-t) + 8px); right: calc(var(--safe-r) + 62px); width: 88px; height: 88px; }
   .chat-dock { width: 150px; bottom: calc(var(--safe-b) + 116px); }

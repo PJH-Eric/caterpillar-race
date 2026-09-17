@@ -1,7 +1,7 @@
 {
   "name": "caterpillar-race",
   "version": "0.1.0",
-  "description": "毛毛蟲賽車 - 俯視視角的可愛賽車遊戲（八隻毛毛蟲、六張賽道、蠕動衝刺、四段難度；零依賴）",
+  "description": "毛毛蟲賽車 - 追尾視角的可愛 3D 賽車遊戲（八隻毛毛蟲、六張賽道、蠕動衝刺、四段難度；零依賴）",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {

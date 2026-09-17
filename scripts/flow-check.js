@@ -63,7 +63,7 @@ ok('設定 Modal 有遮罩', /id="modal-settings"[\s\S]*?modal-mask/.test(html))
 ok('設定 Modal 有焦點鎖定與 Esc 關閉', /function modal\(/.test(read('public/js/svgui.js')) &&
   /Escape/.test(read('public/js/svgui.js')) && /Tab/.test(read('public/js/svgui.js')));
 ok('關閉後焦點回到原本的按鈕', /lastFocus\.focus\(\)/.test(read('public/js/svgui.js')));
-for (const id of ['set-vibrate', 'set-sens', 'set-motion', 'set-color', 'set-bigtext', 'set-bad', 'set-clear', 'set-reset']) {
+for (const id of ['set-vibrate', 'set-sens', 'set-cam', 'set-zoom', 'set-motion', 'set-color', 'set-bigtext', 'set-bad', 'set-clear', 'set-reset']) {
   ok('設定裡有 ' + id, ids.has(id));
 }
 

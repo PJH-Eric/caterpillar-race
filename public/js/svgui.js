@@ -11,8 +11,11 @@
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>';
   }
   /** 轉向鍵的箭頭：兩條互為鏡像的路徑，左右鍵的留白完全一樣，不用任何 transform */
-  function arrowIcon(dir) {
-    const d = dir < 0 ? 'M34 10 14 24 34 38z' : 'M14 10 34 24 14 38z';
+  /** dir: -1 左、1 右；axis 給 'up' / 'down' 就變成上下箭頭（電腦版的油門與煞車） */
+  function arrowIcon(dir, axis) {
+    const d = axis === 'up' ? 'M10 34 24 14 38 34z'
+      : axis === 'down' ? 'M10 14 24 34 38 14z'
+        : (dir < 0 ? 'M34 10 14 24 34 38z' : 'M14 10 34 24 14 38z');
     return '<svg viewBox="0 0 48 48" aria-hidden="true">' +
       '<path d="' + d + '" fill="currentColor"/>' +
       '<path d="' + d + '" fill="none" stroke="rgba(0,0,0,.25)" stroke-width="2" stroke-linejoin="round"/></svg>';

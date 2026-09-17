@@ -24,11 +24,13 @@
     state: null,               /* Rules 的 race state */
     track: null,
     theme: null,
-    art: null,                 /* 預先畫好的賽道圖 */
+    scenery: null,             /* 路邊的樹、石頭等場景物件 */
     miniArt: null,
     meId: 'me',
     trails: {},                /* 每隻毛毛蟲的軌跡（純畫面用） */
-    cam: { x: 0, y: 0, a: 0, ready: false },
+    cam: { x: 0, y: 0, z: 150, a: 0, h: 0, fov: 1, ready: false },
+    boostVis: 0,
+    camDist: 0,
     view: { w: 0, h: 0, dpr: 1, zoom: 1 },
     raf: 0, lastMs: 0, acc: 0,
     paused: false,
@@ -64,6 +66,7 @@
       el.addEventListener('change', () => {
         if (kind === 'check') s[key] = el.checked;
         else if (kind === 'range') s[key] = Number(el.value) / 100;
+        else if (kind === 'text') s[key] = el.value;
         else s[key] = Number(el.value);
         applySettings();
         G.audio.play('tap');
@@ -75,6 +78,8 @@
     bind('set-sfx-vol', 'sfxVol', 'range');
     bind('set-vibrate', 'vibrate', 'check');
     bind('set-sens', 'steerSens', 'select');
+    bind('set-cam', 'camMode', 'text');
+    bind('set-zoom', 'zoomLevel', 'select');
     bind('set-motion', 'reduceMotion', 'check');
     bind('set-color', 'colorAssist', 'check');
     bind('set-bigtext', 'bigText', 'check');
@@ -104,6 +109,8 @@
     $('set-sfx-vol').value = Math.round(s.sfxVol * 100);
     $('set-vibrate').checked = s.vibrate;
     $('set-sens').value = String(s.steerSens);
+    $('set-cam').value = s.camMode;
+    $('set-zoom').value = String(s.zoomLevel);
     $('set-motion').checked = s.reduceMotion;
     $('set-color').checked = s.colorAssist;
     $('set-bigtext').checked = s.bigText;
@@ -281,6 +288,8 @@
       '<div class="help-keys">' +
       '<span class="help-key">' + root.SvgUI.arrowIcon(-1) + '左轉（← 或 A）</span>' +
       '<span class="help-key">' + root.SvgUI.arrowIcon(1) + '右轉（→ 或 D）</span>' +
+      '<span class="help-key">' + root.SvgUI.arrowIcon(1, 'up') + '加速（↑ 或 W）</span>' +
+      '<span class="help-key">' + root.SvgUI.arrowIcon(1, 'down') + '煞車倒退（↓ 或 S）</span>' +
       '<span class="help-key">' + root.SvgUI.itemIcon('juice', 24) + '用道具（空白鍵）</span>' +
       '</div>';
     let itemHtml = '';
@@ -291,8 +300,12 @@
     }
     $('help-body').innerHTML =
       '<section class="panel"><h3>毛毛蟲會自己往前</h3>' +
-      '<p>你不用管油門，毛毛蟲一直在蠕動前進。你只要管三件事：往左轉、往右轉、用道具。</p>' + keyRow +
-      '<p>手機和平板上，左下角是左轉、右下角是右轉，中間下方那顆是道具。</p></section>' +
+      '<p>毛毛蟲一直在往前爬，不催油門也會走。手機和平板上，左下角是左轉、右下角是右轉，' +
+      '中間下方那顆是道具。</p>' +
+      '<p>電腦上四顆方向鍵都有用：↑ 催下去會更快，↓ 是煞車、停住之後會慢慢倒退，← → 轉向，空白鍵用道具。</p>' + keyRow +
+      '<p>畫面是追尾視角，鏡頭固定在自己身上，毛毛蟲永遠在畫面正中央，地平線永遠是水平的。' +
+      '覺得會暈的話，右上角設定裡可以把「鏡頭遠近」調遠一點；' +
+      '「鏡頭跟隨」留在「跟賽道方向」最穩，換成「跟毛毛蟲車頭」會比較跟手但扭的時候畫面會晃。</p></section>' +
 
       '<section class="panel"><h3>蠕動衝刺是這個遊戲的關鍵</h3>' +
       '<p>真的毛毛蟲是靠身體左右波動前進的，這裡也一樣。左右<b>交替</b>按，而且每次換邊的間隔抓在<b>大約半秒</b>，' +
@@ -349,8 +362,8 @@
       allowBad: opt.allowBad !== undefined ? opt.allowBad : G.settings.allowBad
     });
 
-    /* 預先把靜態賽道畫成一張圖，之後每幀只 drawImage 一次 */
-    G.art = root.Render.buildTrack(G.track, G.theme, RNG.create(seed + ':art'));
+    /* 路邊的樹、蘑菇、花、石頭：開局用 seed 撒一次，之後每幀只是投影它們 */
+    G.scenery = root.Render.buildScenery(G.track, RNG.create(seed + ':art'));
     G.miniArt = buildMiniArt();
 
     /* 軌跡初始化：往後補一段，開局就有身體，不會縮成一坨 */
@@ -364,7 +377,11 @@
     }
 
     const me = myRacer();
-    G.cam = { x: me.x, y: me.y, a: me.angle, ready: true };
+    G.cam = { x: me.x, y: me.y, z: camView().height, a: me.angle, h: me.angle, fov: 1, ready: true };
+    G.boostVis = 0;
+    G.camDist = 0;
+    resize();
+    updateCamera(me, 1 / 60, true);
     G.paused = false;
     G.finishedAt = 0;
     G.lastResults = null;
@@ -422,6 +439,7 @@
     if (!G.lastMs) G.lastMs = ms;
     let dt = (ms - G.lastMs) / 1000;
     G.lastMs = ms;
+    G.frameDt = dt;
     /* 分頁切走再回來會累積一大段時間，夾住免得一次跑幾百個 tick */
     if (dt > 0.25) dt = 0.25;
 
@@ -457,7 +475,7 @@
     const me = myRacer();
     if (me && !me.finished) {
       const raw = G.input.read();
-      inputs[me.id] = { steer: applySens(raw.steer), use: raw.use };
+      inputs[me.id] = { steer: applySens(raw.steer), gas: raw.gas || 0, use: raw.use };
     }
     Rules.step(st, inputs);
     handleEvents(st.events);
@@ -511,8 +529,28 @@
   }
 
   /* ================================================================
-   *  六、繪製
+   *  六、繪製（真透視的追尾視角）
+   *
+   *  鏡頭在毛毛蟲後上方，地平線永遠水平。所有東西都交給 render.js 的
+   *  投影器換算，地面的東西（賽道、泥巴、黏液）先依距離由遠到近畫，
+   *  再畫立起來的東西（樹、石頭、道具葉、毛毛蟲），一樣由遠到近。
    * ================================================================ */
+
+  /* 三段視野：鏡頭拉多遠、架多高。拉遠看得到更多前方彎道，也比較不暈。 */
+  const CAM_VIEWS = [
+    { back: 118, height: 34 },    /* 近一點：幾乎趴在地上，最有速度感 */
+    { back: 152, height: 46 },    /* 普通：參考畫面的高度，毛毛蟲佔畫面下半一大塊 */
+    { back: 205, height: 68 }     /* 遠一點：看得到更多前方彎道 */
+  ];
+  /* 鏡頭偏航要跟誰：
+   *   track  跟前方賽道的方向（預設）—— 蠕動的左右擺完全不會傳到畫面
+   *   chase  跟毛毛蟲的車頭 —— 比較跟手，但扭的時候畫面會跟著晃
+   */
+  const CAM_YAW_LERP = { track: 0.16, chase: 0.30 };
+  const CAM_MAX_RATE = 2.2;      /* 每秒最多轉幾弧度，突然的方向變化才不會甩鏡頭 */
+  const CAM_POS_LERP = 0.10;     /* 位置的跟隨速度，慢一點才不會被蠕動帶著抖 */
+
+  function camView() { return CAM_VIEWS[G.settings.zoomLevel] || CAM_VIEWS[1]; }
 
   function resize() {
     const cv = $('stage');
@@ -524,167 +562,252 @@
     cv.width = Math.round(G.view.w * dpr);
     cv.height = Math.round(G.view.h * dpr);
     G.ctx = cv.getContext('2d');
-    /* 小螢幕看得少一點、大螢幕看得多一點，但不要小到看不見毛毛蟲 */
-    G.view.zoom = Math.max(0.95, Math.min(2.1, Math.min(G.view.w, G.view.h) / 420));
     maybeRotateTip();
+  }
+
+  /**
+   * 鏡頭要轉到哪個角度。
+   * track 模式看的是「前方賽道的方向」而不是車頭 —— 賽道方向不會因為蠕動而抖，
+   * 但過彎時還是會順順地轉，而且毛毛蟲本來就大致順著賽道，操作仍然直覺。
+   */
+  function camTargetAngle(me) {
+    if (G.settings.camMode === 'chase') return me.angle;
+    const nodes = G.track.nodes, n = nodes.length;
+    const ahead = Math.round((70 + me.speed * 0.4) / Tracks.NODE_STEP);
+    const nd = nodes[(me.node + ahead) % n];
+    const a = Math.atan2(nd.ty, nd.tx);
+    /* 倒著開或整個跑出賽道時，賽道方向可能跟車頭差很多，
+     * 這時候硬轉過去會讓畫面翻半圈，改成聽車頭的。 */
+    let diff = a - me.angle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    return Math.abs(diff) > 1.9 ? me.angle : a;
+  }
+
+  function updateCamera(me, dt, snapTo) {
+    const cv = camView();
+    /* 速度越快鏡頭拉越遠，速度感才出得來 */
+    const back = cv.back * (1 + Math.min(0.28, me.speed / 1600));
+
+    /* 鏡頭的「軸線」：鏡頭沿著這個方向退到毛毛蟲後面，而且就看著這個方向。
+     * 因為位置與偏航用的是同一個角度，毛毛蟲一定會落在畫面正中央 ——
+     * 不管是過彎、被撞、還是倒退，視角都固定在自己身上。 */
+    let axis = camTargetAngle(me);
+    let dh = axis - G.cam.h;
+    while (dh > Math.PI) dh -= Math.PI * 2;
+    while (dh < -Math.PI) dh += Math.PI * 2;
+    if (snapTo || G.settings.reduceMotion) {
+      G.cam.h = axis;
+    } else {
+      const lerp = CAM_YAW_LERP[G.settings.camMode] || CAM_YAW_LERP.track;
+      const want = dh * lerp;
+      const cap = CAM_MAX_RATE * dt;
+      G.cam.h += Math.abs(want) > cap ? Math.sign(want) * cap : want;
+    }
+    if (G.cam.h > Math.PI) G.cam.h -= Math.PI * 2;
+    if (G.cam.h < -Math.PI) G.cam.h += Math.PI * 2;
+
+    /* 位置直接算出來，不做額外的跟隨平滑 —— 平滑會讓鏡頭被拖在後面，
+     * 毛毛蟲就忽大忽小，旁邊的對手還會比自己大顆。平滑做在 cam.h 上就夠了。 */
+    G.cam.x = me.x - Math.cos(G.cam.h) * back;
+    G.cam.y = me.y - Math.sin(G.cam.h) * back;
+    G.cam.z += (cv.height - G.cam.z) * (snapTo ? 1 : 0.1);
+    G.cam.a = G.cam.h;
+
+    /* 視角寬窄：速度越快越廣，衝刺時再多開一點。
+     * fov 是乘在 focal 上的倍率，越小視角越廣，東西從兩側刷過去越快。 */
+    const st = G.state;
+    const boosting = st && (st.t < me.wiggle.until || st.t < me.juiceUntil || st.t < me.padUntil);
+    const fovWant = 1 - Math.min(0.13, me.speed / 2600) - (boosting ? 0.05 : 0);
+    G.cam.fov = G.cam.fov + (fovWant - G.cam.fov) * (snapTo ? 1 : 0.08);
+    G.boostVis = (G.boostVis || 0) + ((boosting ? 1 : 0) - (G.boostVis || 0)) * 0.12;
+
+    /* 給地面條紋用：鏡頭累積跑過多遠，條紋才會往鏡頭捲過來 */
+    G.camDist = (G.camDist || 0) + me.speed * dt;
   }
 
   function draw() {
     const ctx = G.ctx;
     if (!ctx || !G.state) return;
-    const v = G.view, st = G.state;
+    const v = G.view, st = G.state, R = root.Render;
     const me = myRacer();
+    const dt = Math.min(0.05, G.frameDt || 1 / 60);
 
-    /* 鏡頭：跟隨自己，而且隨車頭旋轉（毛毛蟲永遠朝上） */
-    const snap = G.settings.reduceMotion;
-    G.cam.x += (me.x - G.cam.x) * (snap ? 1 : 0.35);
-    G.cam.y += (me.y - G.cam.y) * (snap ? 1 : 0.35);
-    let da = me.angle - G.cam.a;
-    while (da > Math.PI) da -= Math.PI * 2;
-    while (da < -Math.PI) da += Math.PI * 2;
-    G.cam.a += da * (snap ? 1 : 0.18);
+    updateCamera(me, dt, false);
+    const P = R.projector(v, G.cam);
+    G.P = P;
 
     ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
-    /* 地圖外用草地深色填滿，撞到世界邊界時才不會看到一大片空白 */
-    ctx.fillStyle = G.theme.grassDark;
-    ctx.fillRect(0, 0, v.w, v.h);
+    R.drawSky(ctx, P, G.theme, st.t);
+    R.drawGround(ctx, P, G.theme);
+    R.drawGroundBands(ctx, P, G.theme, G.camDist || 0);
+    R.drawGroundTexture(ctx, P, G.theme);
 
-    ctx.save();
-    ctx.translate(v.w / 2, v.h * 0.60);
-    ctx.scale(v.zoom, v.zoom);
-    ctx.rotate(-G.cam.a - Math.PI / 2);
-    ctx.translate(-G.cam.x, -G.cam.y);
+    /* 地面：賽道分段 ＋ 泥巴／加速帶／黏液／終點線，一起由遠到近畫 */
+    const ground = [];
+    R.trackFaces(P, G.track, me.node, G.theme, ground);
+    R.trackDecals(P, G.track, G.theme, st, ground);
+    ground.sort((a, b) => b.f - a.f);
+    for (const g of ground) g.draw(ctx);
 
-    if (G.art && G.art.canvas) ctx.drawImage(G.art.canvas, G.art.ox, G.art.oy);
+    R.drawFog(ctx, P, G.theme);
 
-    /* 黏液 */
-    for (const g of st.goo) {
-      const grd = ctx.createRadialGradient(g.x, g.y, 2, g.x, g.y, Rules.C.GOO_R);
-      grd.addColorStop(0, 'rgba(199,155,232,.95)');
-      grd.addColorStop(1, 'rgba(155,105,200,.15)');
-      ctx.fillStyle = grd;
-      ctx.beginPath(); ctx.arc(g.x, g.y, Rules.C.GOO_R, 0, Math.PI * 2); ctx.fill();
+    /* 立起來的東西：場景物件、道具葉、毛毛蟲，一樣由遠到近。
+     * 淡出的門檻跟著「自己離鏡頭多遠」走：比自己近三成以上的東西就開始淡掉。
+     * 用固定距離的話，鏡頭被拖遠的那幾幀會讓旁邊的樹、葉子、對手整個爆開。 */
+    const props = [];
+    const meF = Math.max(60, P.pt(me.x, me.y, 0).f);
+    const nearFade = f => Math.max(0, Math.min(1, (f - meF * 0.34) / (meF * 0.42)));
+    for (const sc of G.scenery) {
+      const p = P.pt(sc.x, sc.y, 0);
+      /* 卡在鏡頭跟玩家中間的樹會被放大成擋住半個畫面的黑影，靠太近就淡出 */
+      if (p.f > R.FAR) continue;
+      if (p.x < -250 || p.x > v.w + 250) continue;
+      const vis = nearFade(p.f);
+      if (vis <= 0.03) continue;
+      props.push({
+        f: p.f,
+        draw: c => {
+          if (vis >= 1) { R.drawProp(c, sc, p.x, p.y, p.s, G.theme, st.t); return; }
+          c.save(); c.globalAlpha = vis; R.drawProp(c, sc, p.x, p.y, p.s, G.theme, st.t); c.restore();
+        }
+      });
     }
-
-    /* 道具葉 */
-    const bob = snap ? 0 : Math.sin(st.t * 3) * 2;
-    for (const leaf of st.leaves) {
+    for (let i = 0; i < st.leaves.length; i++) {
+      const leaf = st.leaves[i];
       if (st.t < leaf.readyAt) continue;
-      ctx.save();
-      /* 地上的影子：葉子是飄著的，有影子才立體 */
-      ctx.globalAlpha = 0.18;
-      ctx.fillStyle = '#000';
-      ctx.beginPath(); ctx.ellipse(leaf.x + 3, leaf.y + 9, 11, 5, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.globalAlpha = 1;
-
-      ctx.translate(leaf.x, leaf.y + bob);
-      /* 柔和光暈，不要一塊白色圓餅 */
-      const glow = ctx.createRadialGradient(0, 0, 3, 0, 0, 20);
-      glow.addColorStop(0, 'rgba(255,255,255,.75)');
-      glow.addColorStop(0.55, 'rgba(255,248,190,.35)');
-      glow.addColorStop(1, 'rgba(255,248,190,0)');
-      ctx.fillStyle = glow;
-      ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI * 2); ctx.fill();
-
-      /* 葉子本體：上亮下暗，中間一條主脈 */
-      const lg = ctx.createLinearGradient(-8, -12, 8, 12);
-      lg.addColorStop(0, '#C6F08C');
-      lg.addColorStop(0.5, '#8BD44A');
-      lg.addColorStop(1, '#4F9420');
-      ctx.fillStyle = lg;
-      ctx.beginPath();
-      ctx.moveTo(0, -13); ctx.quadraticCurveTo(12, 0, 0, 13); ctx.quadraticCurveTo(-12, 0, 0, -13);
-      ctx.fill();
-      ctx.strokeStyle = '#3C7A14'; ctx.lineWidth = 1.4;
-      ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, -11); ctx.lineTo(0, 11); ctx.stroke();
-      ctx.restore();
+      const p = P.pt(leaf.x, leaf.y, 0);
+      if (p.f < R.NEAR || p.f > R.FAR * 0.6) continue;
+      const lv = nearFade(p.f);
+      if (lv <= 0.03) continue;
+      props.push({
+        f: p.f,
+        draw: c => {
+          if (lv >= 1) { R.drawLeaf(c, p.x, p.y, p.s, st.t, i, p.f); return; }
+          c.save(); c.globalAlpha = lv; R.drawLeaf(c, p.x, p.y, p.s, st.t, i, p.f); c.restore();
+        }
+      });
     }
+    for (const r of st.racers) {
+      const p = P.pt(r.x, r.y, 0);
+      if (p.f < R.NEAR * 0.8 || p.f > R.FAR) continue;
+      /* 卡在鏡頭跟自己中間的對手會被放到超大擋住畫面，靠太近就淡出 */
+      /* 自己永遠最後畫、而且永遠不淡出 —— 視角是固定在自己身上的，
+       * 不能因為有人貼在鏡頭與自己之間就把主角蓋掉。 */
+      if (r.id === G.meId) continue;
+      const near = nearFade(p.f);
+      if (near <= 0.03) continue;
+      props.push({
+        f: p.f,
+        draw: c => {
+          if (near >= 1) { drawRacer(c, P, r); return; }
+          c.save(); c.globalAlpha = near; drawRacer(c, P, r); c.restore();
+        }
+      });
+    }
+    props.sort((a, b) => b.f - a.f);
+    for (const p of props) p.draw(ctx);
+    if (P.pt(me.x, me.y, 0).f > R.NEAR * 0.8) drawRacer(ctx, P, me);
 
-    /* 蜘蛛絲 */
+    /* 蜘蛛絲：兩隻毛毛蟲的頭之間拉一條線 */
     for (const w of st.webs) {
       const a = st.racers.find(r => r.id === w.from), b = st.racers.find(r => r.id === w.to);
       if (!a || !b) continue;
+      const pa = P.pt(a.x, a.y, root.Render.HEAD_R), pb = P.pt(b.x, b.y, root.Render.HEAD_R);
+      if (pa.f < R.NEAR || pb.f < R.NEAR) continue;
       ctx.strokeStyle = 'rgba(235,240,250,.9)';
-      ctx.lineWidth = 2.4; ctx.setLineDash([7, 5]);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.lineWidth = 2.4;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
       ctx.setLineDash([]);
     }
 
-    /* 毛毛蟲：自己最後畫，蓋在最上面 */
-    const order = st.racers.slice().sort((p, q) => (p.id === G.meId ? 1 : 0) - (q.id === G.meId ? 1 : 0));
-    for (const r of order) drawRacer(ctx, r);
+    if (!G.settings.reduceMotion) R.drawSpeedLines(ctx, P, G.boostVis || 0, st.t);
 
-    ctx.restore();
-
-    /* 螢幕座標的東西：名牌要正的，不能跟著鏡頭轉 */
-    drawNameplates(ctx);
+    drawNameplates(ctx, P);
     drawMini();
     drawCountdown();
   }
 
-  function drawRacer(ctx, r) {
+  function drawRacer(ctx, P, r) {
     const ch = Chars.get(r.char);
-    const pts = root.Render.sampleTrail(G.trails[r.id] || [{ x: r.x, y: r.y }], root.Render.SEGS, root.Render.SEG_GAP);
     const st = G.state;
+    /* 身體用「現在的位置與角度」直接排出來，不再沿著走過的軌跡取樣。
+     * 取樣軌跡會讓後面幾節停在剛剛走過的地方，看起來就是一條殘影；
+     * 改成從頭往後排，只用轉向量把身體彎一點，過彎時還是有弧度。 */
+    const R0 = root.Render;
+    const bend = Math.max(-0.30, Math.min(0.30, (r.turnVel || 0) * 0.16));
+    const pts = [];
+    let px = r.x, py = r.y, pa = r.angle;
+    for (let i = 0; i <= R0.SEGS; i++) {
+      pts.push({ x: px, y: py });
+      pa -= bend;
+      /* 地面上只退 SEG_RUN，剩下的距離由 render 用高度補 —— 身體是立起來的 */
+      px -= Math.cos(pa) * R0.SEG_RUN;
+      py -= Math.sin(pa) * R0.SEG_RUN;
+    }
 
-    /* 腳下光環：自己金色，別人用自己的深色 */
-    ctx.save();
-    ctx.globalAlpha = r.ghost ? 0.2 : 0.5;
-    ctx.strokeStyle = (r.id === G.meId) ? '#FFD54A' : ch.bodyDark;
-    ctx.lineWidth = r.id === G.meId ? 3.4 : 2;
-    ctx.beginPath(); ctx.ellipse(r.x, r.y, 20, 15, 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.restore();
+    /* 腳下光環：自己金色，別人用自己的深色。壓扁成橢圓才像貼在地上。 */
+    const g0 = P.pt(r.x, r.y, 0);
+    if (g0.f > root.Render.NEAR) {
+      const rx = 22 * g0.s;
+      ctx.save();
+      ctx.globalAlpha = r.ghost ? 0.2 : 0.5;
+      ctx.strokeStyle = (r.id === G.meId) ? '#FFD54A' : ch.bodyDark;
+      ctx.lineWidth = Math.max(1, (r.id === G.meId ? 3.4 : 2) * g0.s);
+      ctx.beginPath();
+      ctx.ellipse(g0.x, g0.y, rx, rx * Math.min(0.9, G.cam.z / g0.f), 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
 
-    root.Render.drawWorm(ctx, ch, pts, {
+    root.Render.drawWorm3D(ctx, P, ch, pts, {
       t: st.t,
+      angle: r.angle,
       wiggle: st.t < r.wiggle.until,
       tiny: st.t < r.tinyUntil,
       shield: st.t < r.shieldUntil,
       hop: st.t < r.hopUntil,
       slow: st.t < r.slowUntil,
       ghost: r.ghost,
+      isMe: r.id === G.meId,
       reduceMotion: G.settings.reduceMotion
     });
   }
 
-  /** 世界座標 → 螢幕座標（名牌與色彩輔助標記用） */
-  function worldToScreen(x, y) {
-    const v = G.view;
-    const dx = x - G.cam.x, dy = y - G.cam.y;
-    const a = -G.cam.a - Math.PI / 2;
-    const cos = Math.cos(a), sin = Math.sin(a);
-    return {
-      x: v.w / 2 + (dx * cos - dy * sin) * v.zoom,
-      y: v.h * 0.60 + (dx * sin + dy * cos) * v.zoom
-    };
-  }
-
   const SHAPE = { circle: 0, square: 1, heart: 2, drop: 3, star: 4, diamond: 5, leaf: 6, triangle: 7 };
 
-  function drawNameplates(ctx) {
+  function drawNameplates(ctx, P) {
     const v = G.view;
     ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.font = '700 12px "Noto Sans TC", system-ui, sans-serif';
-    for (const r of G.state.racers) {
-      const p = worldToScreen(r.x, r.y);
-      if (p.x < -70 || p.x > v.w + 70 || p.y < -70 || p.y > v.h + 70) continue;
+    /* 遠的先畫，近的蓋上去 */
+    const list = G.state.racers.slice()
+      .map(r => ({ r: r, p: P.pt(r.x, r.y, root.Render.HEAD_R * 2 + 16) }))
+      .filter(o => o.p.f > root.Render.NEAR && o.p.f < 1400)
+      .sort((a, b) => b.p.f - a.p.f);
+
+    for (const o of list) {
+      const r = o.r, p = o.p;
+      if (p.x < -70 || p.x > v.w + 70 || p.y < -20 || p.y > v.h + 20) continue;
+      /* 太遠就不標名字，畫面才不會一堆小字 */
+      const fade = Math.max(0, Math.min(1, (1100 - p.f) / 500));
+      if (fade <= 0.05) continue;
       const ch = Chars.get(r.char);
       const label = r.name + (r.ghost ? '（掉線）' : '');
       const w = ctx.measureText(label).width + (G.settings.colorAssist ? 24 : 14);
-      const y = p.y - 26 * v.zoom;
-      ctx.globalAlpha = r.ghost ? 0.45 : 0.92;
-      ctx.fillStyle = 'rgba(255,253,243,.86)';
-      roundRect(ctx, p.x - w / 2, y - 14, w, 18, 9);
+      ctx.globalAlpha = (r.ghost ? 0.4 : 0.92) * fade;
+      ctx.fillStyle = 'rgba(255,253,243,.88)';
+      roundRect(ctx, p.x - w / 2, p.y - 14, w, 18, 9);
       ctx.fill();
       if (G.settings.colorAssist) {
         ctx.fillStyle = ch.bodyDark;
-        drawShape(ctx, p.x - w / 2 + 8, y - 5, 4.5, SHAPE[ch.shape] || 0);
+        drawShape(ctx, p.x - w / 2 + 8, p.y - 5, 4.5, SHAPE[ch.shape] || 0);
       }
       ctx.fillStyle = (r.id === G.meId) ? '#2F6B0C' : '#4A4632';
-      ctx.fillText(label, p.x + (G.settings.colorAssist ? 5 : 0), y);
+      ctx.fillText(label, p.x + (G.settings.colorAssist ? 5 : 0), p.y);
       ctx.globalAlpha = 1;
     }
   }
@@ -716,7 +839,7 @@
     ctx.fill();
   }
 
-  /* ---------- 小地圖：鏡頭會轉，需要一張不轉的圖才知道自己在哪 ---------- */
+  /* ---------- 小地圖：追尾視角只看得到前面，需要一張俯視圖才知道整條賽道 ---------- */
 
   function buildMiniArt() {
     const size = 160;
@@ -725,7 +848,7 @@
     const s = size / Math.max(w, h);
     const cv = root.Render.makeCanvas(size, size);
     const ctx = cv.getContext('2d');
-    const out = { canvas: cv, s, ox: b.minX, oy: b.minY, size, dx: (size - w * s) / 2, dy: (size - h * s) / 2 };
+    const out = { canvas: cv, s: s, ox: b.minX, oy: b.minY, size: size, dx: (size - w * s) / 2, dy: (size - h * s) / 2 };
     if (!ctx) return out;
     ctx.translate(out.dx, out.dy);
     ctx.scale(s, s);
