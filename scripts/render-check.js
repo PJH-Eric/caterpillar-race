@@ -49,7 +49,7 @@ ok('最接近的兩隻顏色也分得出來（RGB 距離 > 70）', minDist > 70,
 
 /* ---------- 六套賽道主題 ---------- */
 const themeIds = Object.keys(TrackArt.THEMES);
-ok('賽道主題剛好六套', themeIds.length === 6, themeIds.length);
+ok('賽道主題至少九套', themeIds.length >= 9, themeIds.length);
 ok('每張手設賽道都指到存在的主題',
   Tracks.TRACKS.every(t => TrackArt.THEMES[t.theme]),
   Tracks.TRACKS.filter(t => !TrackArt.THEMES[t.theme]).map(t => t.id).join(','));

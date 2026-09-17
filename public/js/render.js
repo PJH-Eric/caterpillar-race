@@ -518,7 +518,10 @@
     branch: ['tree', 'tree', 'bush', 'acorn'],
     pond: ['reed', 'bush', 'reed', 'flower', 'tree'],
     candy: ['candycane', 'lolly', 'bush', 'lolly'],
-    shroom: ['mushroom', 'mushroom', 'glowbud', 'mushroom']
+    shroom: ['mushroom', 'mushroom', 'glowbud', 'mushroom'],
+    beach: ['reed', 'bush', 'reed', 'tree', 'reed'],
+    canyon: ['bush', 'acorn', 'bush', 'tree'],
+    snow: ['tree', 'bush', 'tree', 'bush']
   };
 
   /** 開局沿賽道兩側撒一次，之後每一幀只是投影它們 */

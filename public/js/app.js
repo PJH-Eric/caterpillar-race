@@ -371,6 +371,8 @@
     /* 軌跡初始化：往後補一段，開局就有身體，不會縮成一坨 */
     G.trails = {};
     G.bannerKey = '';
+    G.camVel = null;
+    hideRaceResult();
     { const rp = $('room-result'); if (rp) rp.hidden = true; }
     if (G.resultTimer) { root.clearTimeout(G.resultTimer); G.resultTimer = 0; }
     $('finish-banner').hidden = true;
@@ -589,8 +591,42 @@
    * track 模式看的是「前方賽道的方向」而不是車頭 —— 賽道方向不會因為蠕動而抖，
    * 但過彎時還是會順順地轉，而且毛毛蟲本來就大致順著賽道，操作仍然直覺。
    */
-  function camTargetAngle(me) {
-    if (G.settings.camMode === 'chase') return me.angle;
+  /**
+   * chase 模式的鏡頭軸線 ——「跟一般賽車一樣」的關鍵在這裡。
+   *
+   * 用瞬時車頭（me.angle）不行：蠕動衝刺就是靠左右交替扭出來的，
+   * 車頭本來就在以大約 2Hz 來回擺，鏡頭跟著它走，直線上畫面就一直左右搖。
+   *
+   * 改成看「平滑過的行進方向」：把速度向量做指數平滑再取角度。
+   * 平滑的是向量不是角度 —— 扭左跟扭右的橫向分量會自己抵銷掉，
+   * 所以直線上算出來就是一條直的，過彎時才真的轉過去。
+   * 時間常數約 0.4 秒，剛好蓋掉一個完整的蠕動週期，又不會讓彎道慢半拍。
+   */
+  const CAM_VEL_LERP = 0.045;
+
+  function chaseAxis(me, snapTo) {
+    const hx = Math.cos(me.angle), hy = Math.sin(me.angle);
+    const sp = Math.hypot(me.vx, me.vy);
+    /* 速度太小、或正在倒車時，行進方向沒有意義（倒車還會讓鏡頭整個翻半圈），
+     * 這兩種情況一律聽車頭的 */
+    const useVel = sp > 25 && (me.vx * hx + me.vy * hy) > 0;
+    const tx = useVel ? me.vx / sp : hx;
+    const ty = useVel ? me.vy / sp : hy;
+
+    let sm = G.camVel;
+    if (!sm || snapTo) sm = G.camVel = { x: tx, y: ty };
+    else {
+      sm.x += (tx - sm.x) * CAM_VEL_LERP;
+      sm.y += (ty - sm.y) * CAM_VEL_LERP;
+      const len = Math.hypot(sm.x, sm.y);
+      if (len > 1e-4) { sm.x /= len; sm.y /= len; }
+      else { sm.x = tx; sm.y = ty; }
+    }
+    return Math.atan2(sm.y, sm.x);
+  }
+
+  function camTargetAngle(me, snapTo) {
+    if (G.settings.camMode === 'chase') return chaseAxis(me, snapTo);
     const nodes = G.track.nodes, n = nodes.length;
     const ahead = Math.round((70 + me.speed * 0.4) / Tracks.NODE_STEP);
     const nd = nodes[(me.node + ahead) % n];
@@ -611,7 +647,7 @@
     /* 鏡頭的「軸線」：鏡頭沿著這個方向退到毛毛蟲後面，而且就看著這個方向。
      * 因為位置與偏航用的是同一個角度，毛毛蟲一定會落在畫面正中央 ——
      * 不管是過彎、被撞、還是倒退，視角都固定在自己身上。 */
-    let axis = camTargetAngle(me);
+    let axis = camTargetAngle(me, snapTo);
     let dh = axis - G.cam.h;
     while (dh > Math.PI) dh -= Math.PI * 2;
     while (dh < -Math.PI) dh += Math.PI * 2;
@@ -637,7 +673,7 @@
      * fov 是乘在 focal 上的倍率，越小視角越廣，東西從兩側刷過去越快。 */
     const st = G.state;
     const boosting = st && (st.t < me.wiggle.until || st.t < me.juiceUntil || st.t < me.padUntil);
-    const fovWant = 1 - Math.min(0.13, me.speed / 2600) - (boosting ? 0.05 : 0);
+    const fovWant = 1 - Math.min(0.07, me.speed / 4200) - (boosting ? 0.04 : 0);
     G.cam.fov = G.cam.fov + (fovWant - G.cam.fov) * (snapTo ? 1 : 0.08);
     G.boostVis = (G.boostVis || 0) + ((boosting ? 1 : 0) - (G.boostVis || 0)) * 0.12;
 
@@ -1124,16 +1160,44 @@
     if (G.resultTimer) root.clearTimeout(G.resultTimer);
     G.resultTimer = root.setTimeout(() => {
       G.resultTimer = 0;
-      /* 線上不跳到獨立的結算頁 —— 成績直接畫在房間裡，
-       * 人還在房間、聊天室還在、大家可以直接再按準備開下一局。
-       * 想看完整統計再按「看詳細統計」。 */
-      if (G.mode === 'online' && root.Online) {
-        paintRoomResult(G.lastResults);
-        root.Online.backToRoom();
-        return;
-      }
-      show('result');
+      /* 單機與線上都不換場景：結算直接蓋在賽道畫面上，背景還是剛剛跑完的那一幕。
+       * 線上按「再玩一場」就地準備，下一局開始時畫面接著跑，中間不會跳頁；
+       * 單機的完整統計留在獨立頁，想看再按「看詳細統計」。 */
+      showRaceResult(G.lastResults);
+      if (G.mode === 'online' && root.Online) paintRoomResult(G.lastResults);
     }, 1000);
+  }
+
+  /** 線上結算浮層：蓋在賽道畫面上 */
+  function showRaceResult(results) {
+    const box = $('race-result');
+    if (!box || !results || !results.length) return;
+    const me = results.find(r => r.id === G.meId) || results[0];
+    $('rr-title').textContent = me.rank === 1 ? '你贏了！' : (results[0].name + ' 第一名');
+    let html = '';
+    for (const r of results) {
+      html += '<li class="' + (r.id === G.meId ? 'me' : '') + '">' +
+        '<span class="pos">' + r.rank + '</span>' +
+        root.Render.wormSvg(Chars.get(r.char), 30) +
+        '<span><span class="rname">' + escapeHtml(r.name) + '</span></span>' +
+        '<span class="rtime">' + (r.finished ? r.time.toFixed(2) + 's' : '未完賽') + '</span></li>';
+    }
+    $('rr-list').innerHTML = html;
+    $('rr-hint').textContent = '';
+    $('rr-again').disabled = false;
+
+    /* 按鈕依模式換字：線上是房間那一套，單機是再跑一局那一套 */
+    const online = (G.mode === 'online');
+    $('rr-again').textContent = online ? '再玩一場' : '再來一局';
+    $('rr-room').textContent = online ? '回房間' : '換賽道';
+    $('rr-leave').textContent = online ? '離開房間' : '回首頁';
+    $('rr-more').hidden = online;
+    box.hidden = false;
+  }
+
+  function hideRaceResult() {
+    const box = $('race-result');
+    if (box) box.hidden = true;
   }
 
   /** 把上一局的名次畫進房間的面板 */
@@ -1215,6 +1279,28 @@
       if (G.mode === 'online' && root.Online) root.Online.leave();
       show('home');
     });
+    $('rr-again').addEventListener('click', () => {
+      if (G.mode === 'online') {
+        if (root.Online && root.Online.readyAgain()) {
+          $('rr-again').disabled = true;
+          $('rr-hint').textContent = '已經準備好了，等其他人。';
+        }
+        return;
+      }
+      hideRaceResult();
+      startRace({ trackId: G.track && G.track.random ? 'random' : (G.track ? G.track.id : G.settings.lastTrack) });
+    });
+    $('rr-room').addEventListener('click', () => {
+      hideRaceResult();
+      if (G.mode === 'online') { if (root.Online) root.Online.backToRoom(); return; }
+      show('setup');
+    });
+    $('rr-leave').addEventListener('click', () => {
+      hideRaceResult();
+      if (G.mode === 'online' && root.Online) root.Online.leave();
+      show('home');
+    });
+    $('rr-more').addEventListener('click', () => { hideRaceResult(); show('result'); });
     const moreBtn = $('room-result-more');
     if (moreBtn) moreBtn.addEventListener('click', () => show('result'));
     $('rotate-ok').addEventListener('click', hideRotateTip);

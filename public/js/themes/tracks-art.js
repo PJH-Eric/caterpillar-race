@@ -66,6 +66,36 @@
       sky2: '#243A54', skyLow: '#3A5878',
       hill: '#233B52', hillDark: '#16293B', sun: '#9FF0E4',
       decor: ['shroom', 'glow', 'pebble'], night: true
+    },
+    beach: {
+      name: '海灣大道',
+      grass: '#F2DEA8', grassDark: '#D9BF83', grassAlt: '#FBEBC2',
+      road: '#C9B187', roadDark: '#A8916A', roadEdge: '#FFF6DE',
+      mud: '#8A7048', boost: '#9FE8FF', sky: '#DFF4FF',
+      rock: '#C4BBA6', rockDark: '#948B77',
+      sky2: '#63C8EE', skyLow: '#DCF5FF',
+      hill: '#59B8B0', hillDark: '#3E8F8C', sun: '#FFF4C6',
+      decor: ['reed', 'pebble', 'splash'], night: false
+    },
+    canyon: {
+      name: '岩石峽谷',
+      grass: '#C4643A', grassDark: '#A04E2B', grassAlt: '#D87A4C',
+      road: '#E5B885', roadDark: '#C79A67', roadEdge: '#FFF0D4',
+      mud: '#6E4326', boost: '#FFD99A', sky: '#FDE7CE',
+      rock: '#9E6A45', rockDark: '#744A2E',
+      sky2: '#F0A86A', skyLow: '#FFE6C8',
+      hill: '#A9603A', hillDark: '#7E4428', sun: '#FFE1A0',
+      decor: ['pebble', 'twig', 'clover'], night: false
+    },
+    snow: {
+      name: '雪地蜿蜒',
+      grass: '#F4FAFF', grassDark: '#D7E7F4', grassAlt: '#FFFFFF',
+      road: '#9FBBD2', roadDark: '#7C9AB4', roadEdge: '#EAF6FF',
+      mud: '#8FA3B5', boost: '#BFF0FF', sky: '#E6F2FC',
+      rock: '#B7C6D4', rockDark: '#8B9CAC',
+      sky2: '#8FC4E8', skyLow: '#F2FAFF',
+      hill: '#B9D3E6', hillDark: '#94B4CD', sun: '#FFFBE8',
+      decor: ['pebble', 'twig', 'clover'], night: false
     }
   };
 

@@ -208,6 +208,21 @@
     <button class="tbtn right" id="btn-right" type="button" aria-label="右轉"></button>
   </div>
 
+  <!-- 結算：直接蓋在賽道畫面上，不換場景，背景還是剛剛跑完的那一幕（單機與線上都是） -->
+  <div class="race-result" id="race-result" hidden role="dialog" aria-label="比賽結果">
+    <div class="rr-box">
+      <h2 id="rr-title">比賽結束</h2>
+      <ol class="result-list compact" id="rr-list"></ol>
+      <div class="rr-buttons">
+        <button class="big-btn primary" id="rr-again" type="button">再玩一場</button>
+        <button class="big-btn" id="rr-room" type="button">回房間</button>
+        <button class="big-btn ghost" id="rr-leave" type="button">離開房間</button>
+        <button class="big-btn ghost" id="rr-more" type="button" hidden>看詳細統計</button>
+      </div>
+      <p class="hint" id="rr-hint"></p>
+    </div>
+  </div>
+
   <div class="countdown" id="countdown" hidden aria-live="assertive"></div>
   <!-- 自己衝過終點線的那一刻，畫面正中央大大地報名次 -->
   <div class="finish-banner" id="finish-banner" hidden aria-live="assertive">

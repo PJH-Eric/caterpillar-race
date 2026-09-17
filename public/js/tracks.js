@@ -171,8 +171,8 @@
    * 追尾視角下，原本的寬度在畫面上只佔中間細細一條，兩邊都是草地；
    * 參考畫面裡的路是鋪滿整個下半部的。寬度是在這裡一次放大的，
    * 每張賽道的 ctrl 都不用改；石頭會在下面自動往外推，不會被路吞掉。 */
-  const ROAD_WIDE = [1.62, 1.48, 1.34, 1.2, 1.08];   /* 想要的加寬倍率，由寬到窄 */
-  const ROAD_MIN_W = 102;   /* 再窄的賽道也不要窄到只剩一條線 */
+  const ROAD_WIDE = [1.95, 1.8, 1.65, 1.5, 1.35, 1.24, 1.15, 1.08, 1.0];   /* 想要的加寬倍率，由寬到窄 */
+  const ROAD_MIN_W = 124;   /* 再窄的賽道也不要窄到只剩一條線 */
 
   /**
    * 盡量加寬，但不能寬到自己貼到自己。
@@ -185,8 +185,14 @@
   function fitWiden(nodes) {
     const base = nodes.map(nd => nd.w);
     for (const k of ROAD_WIDE) {
-      for (let i = 0; i < nodes.length; i++) nodes[i].w = Math.max(base[i] * k, ROAD_MIN_W);
-      if (!selfOverlaps(nodes)) return k;
+      /* 先試「套最小寬度」的版本，太擠再退成純倍率的版本，
+       * 這樣很窄的賽道也還是會被加寬一點，不會一路掉回原寬 */
+      for (const useMin of [true, false]) {
+        for (let i = 0; i < nodes.length; i++) {
+          nodes[i].w = useMin ? Math.max(base[i] * k, ROAD_MIN_W) : base[i] * k;
+        }
+        if (!selfOverlaps(nodes)) return k;
+      }
     }
     for (let i = 0; i < nodes.length; i++) nodes[i].w = base[i];
     return 1;
@@ -197,29 +203,50 @@
     return nodes;
   }
 
-  /** 路變寬之後，原本擦邊的石頭會落到路面上，沿著法線推出去 */
-  function pushRocksOut(rocks, nodes) {
+  /**
+   * 路變寬之後，原本擦邊的石頭會落到路面上，要推出去。
+   *
+   * 只沿最近節點的法線推一次是不夠的：賽道繞回來的地方，推出 A 段的路面
+   * 有可能正好推進 B 段。所以推完再用格子實際驗一次，不行就加大距離、
+   * 換一邊、最後真的清不掉就把那顆石頭丟掉 —— 石頭是裝飾兼障礙，
+   * 少一顆沒差，卡在路中間才是問題。
+   */
+  function placeRocks(rocks, nodes, grid) {
     const n = nodes.length;
-    return rocks.map(rk => {
+    const out = [];
+    const clear = (x, y, r) => {
+      /* 石頭中心與四周都要在草地上 */
+      for (const [dx, dy] of [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]]) {
+        const c = cellOf(grid, x + dx, y + dy);
+        if (c >= 0 && grid.surface[c] !== SURFACE.GRASS) return false;
+      }
+      return true;
+    };
+    for (const rk of rocks) {
+      if (clear(rk[0], rk[1], rk[2])) { out.push(rk); continue; }
       let best = -1, bestD = Infinity;
       for (let i = 0; i < n; i++) {
         const dx = nodes[i].x - rk[0], dy = nodes[i].y - rk[1];
         const d = dx * dx + dy * dy;
         if (d < bestD) { bestD = d; best = i; }
       }
-      if (best < 0) return rk;
+      if (best < 0) continue;
       const nd = nodes[best];
-      const lat = (rk[0] - nd.x) * nd.nx + (rk[1] - nd.y) * nd.ny;
-      const need = nd.w + rk[2] + 14;
-      if (Math.abs(lat) >= need) return rk;
-      const side = lat >= 0 ? 1 : -1;
       const along = (rk[0] - nd.x) * nd.tx + (rk[1] - nd.y) * nd.ty;
-      return [
-        nd.x + nd.tx * along + nd.nx * side * need,
-        nd.y + nd.ty * along + nd.ny * side * need,
-        rk[2]
-      ];
-    });
+      const lat = (rk[0] - nd.x) * nd.nx + (rk[1] - nd.y) * nd.ny;
+      let placed = null;
+      for (const side of (lat >= 0 ? [1, -1] : [-1, 1])) {
+        for (let extra = 0; extra <= 180 && !placed; extra += 30) {
+          const off = side * (nd.w + rk[2] + 18 + extra);
+          const x = nd.x + nd.tx * along + nd.nx * off;
+          const y = nd.y + nd.ty * along + nd.ny * off;
+          if (clear(x, y, rk[2])) placed = [x, y, rk[2]];
+        }
+        if (placed) break;
+      }
+      if (placed) out.push(placed);
+    }
+    return out;
   }
 
   function build(def) {
@@ -229,7 +256,7 @@
     /* 有些賽道（菜園迷宮、夜光蘑菇）自己繞回來的地方本來就很擠，
      * 路面根本加不寬。那就把整張圖等比例放大 —— 形狀一模一樣，
      * 只是彎跟彎之間空出距離，路面才寬得起來。 */
-    if (wideK < 1.2) {
+    if (wideK < 1.35) {
       const GROW = 1.32;
       ctrl = ctrl.map(p => [p[0] * GROW, p[1] * GROW, p[2]]);
       nodes = addTangents(sample(ctrl, true), true);
@@ -319,7 +346,7 @@
       random: !!def.random,
       seed: def.seed || def.id,
       nodes, shortcuts, grid, bounds, items, starts,
-      rocks: pushRocksOut((def.rocks || []).map(r => [r[0] * grow, r[1] * grow, r[2]]), nodes)
+      rocks: placeRocks((def.rocks || []).map(r => [r[0] * grow, r[1] * grow, r[2]]), nodes, grid)
         .map(r => ({ x: r[0], y: r[1], r: r[2] })),
       mud: mudList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
       boosts: boostList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
@@ -423,7 +450,7 @@
       rocks: [[0, -30, 190], [546, 513, 48], [-576, -443, 50]]
     },
     {
-      id: 'pond', name: '水窪淺灘', theme: 'pond', stars: 2, laps: 3,
+      id: 'pond', name: '水窪淺灘', theme: 'pond', stars: 2, laps: 2,
       desc: '雨後的淺灘，泥巴和水窪特別多，記得繞開深色的地方。',
       startNode: 0, itemCount: 12,
       ctrl: [
@@ -466,6 +493,51 @@
       mud: [[200, -140, 38], [-120, 300, 38], [-330, -80, 36]],
       rocks: [[0, -20, 160], [-620, -560, 46], [620, 500, 46]]
     }
+,
+    {
+      /* boxy  seed=boxy-2  長度 3920  路寬 122  一圈 16.2s  葉 17 */
+      id: 'beach', name: '海灣大道', theme: 'beach', stars: 2, laps: 3,
+      desc: '沙灘旁的環海大道，四條長直線接四個角，最好練走線的一張。',
+      startNode: 0, itemCount: 12,
+      ctrl: [
+              [626, 83, 68], [576, 333, 80], [393, 512, 85], [142, 532, 89], [-67, 507, 79], [-275, 477, 88], 
+              [-512, 393, 68], [-642, 172, 79], [-626, -83, 67], [-576, -333, 80], [-393, -512, 86], [-142, 
+              -532, 67], [67, -507, 70], [275, -477, 61], [512, -393, 69], [642, -172, 74]
+            ],
+      boosts: [[605, 249, 44], [392, 513, 52], [-590, 299, 55], [-633, -39, 42], [91, -505, 57], [642, -172, 42]],
+      mud: [[43, 538, 49], [-549, -373, 39]],
+      rocks: [[454, 258, 33], [513, 624, 39], [205, 369, 34], [-526, -7, 23], [-731, -291, 24], [-582, -579, 29], [-257, -386, 37], [-4, -629, 29], [492, -543, 33], [502, -52, 30]]
+    },
+    {
+      /* kidney  seed=kidney-10  長度 3262  路寬 112  一圈 14.3s  葉 20 */
+      id: 'canyon', name: '岩石峽谷', theme: 'canyon', stars: 3, laps: 3,
+      desc: '峽谷繞著一塊大岩壁走，一邊大直線、一邊髮夾彎，落差很大。',
+      startNode: 0, itemCount: 12,
+      ctrl: [
+              [387, 367, 73], [501, 246, 87], [565, 101, 68], [573, -54, 88], [526, -203, 60], [427, -333, 67], 
+              [287, -431, 88], [118, -486, 81], [-62, -493, 60], [-237, -452, 66], [-387, -367, 75], [-498, 
+              -245, 83], [-542, -97, 74], [-485, 45, 80], [-347, 134, 86], [-248, 193, 62], [-203, 306, 85], 
+              [-105, 431, 66], [61, 481, 75], [236, 451, 68]
+            ],
+      boosts: [[577, -6, 48], [478, -277, 56], [244, -450, 49], [-44, -495, 47], [-323, -411, 47], [-461, 67, 47], [-54, 457, 50]],
+      mud: [[-246, 239, 50], [227, 436, 41]],
+      rocks: [[294, 248, 36], [658, 303, 31], [215, -294, 29], [76, -353, 35], [-116, -594, 34], [-588, 113, 35], [-390, 264, 34], [-172, 577, 27]]
+    },
+    {
+      /* snake  seed=snake-6  長度 4088  路寬 126  一圈 20.2s  葉 17 */
+      id: 'snow', name: '雪地蜿蜒', theme: 'snow', stars: 4, laps: 2,
+      desc: '雪原上的連續左右彎，一個接一個，節奏抓不到就會一直滑出去。',
+      startNode: 0, itemCount: 13,
+      ctrl: [
+              [-394, -317, 76], [-199, -399, 91], [64, -422, 88], [308, -371, 79], [463, -277, 70], [551, -185, 
+              91], [646, -108, 82], [775, -26, 63], [871, 83, 62], [838, 201, 62], [654, 288, 69], [394, 317, 
+              61], [154, 309, 87], [-46, 301, 90], [-256, 309, 63], [-510, 305, 88], [-752, 252, 74], [-881, 
+              148, 89], [-853, 29, 84], [-725, -69, 72], [-597, -144, 77], [-505, -223, 81]
+            ],
+      boosts: [[744, -49, 49], [448, 315, 57], [-593, -147, 53]],
+      mud: [[-229, -393, 49], [454, -265, 50], [800, 232, 41], [-897, 63, 41]],
+      rocks: [[-478, -461, 39], [398, -91, 28], [652, 74, 33], [723, 409, 28], [175, 445, 29], [-324, 159, 31], [-547, 135, 37], [-727, 95, 34], [-344, -177, 32]]
+    }
   ];
 
   const BY_ID = {};
@@ -503,7 +575,7 @@
     const pts = [];
     const rot = rng.range(0, Math.PI * 2);
     const flip = rng.chance(0.5) ? 1 : -1;
-    const W = () => rng.range(60, 92);
+    const W = () => rng.range(78, 108);
 
     if (shape === 'boxy') {
       const n = rng.int(16, 20);

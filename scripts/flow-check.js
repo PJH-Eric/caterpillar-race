@@ -67,6 +67,18 @@ for (const id of ['set-vibrate', 'set-sens', 'set-cam', 'set-zoom', 'set-motion'
   ok('設定裡有 ' + id, ids.has(id));
 }
 
+/* ---------- 3b. 結算浮層：疊在賽道畫面上，不換場景 ---------- */
+{
+  const race = html.slice(html.indexOf('id="screen-race"'), html.indexOf('id="screen-result"'));
+  ok('結算浮層在賽道畫面裡（不是獨立頁）', race.includes('id="race-result"'));
+  for (const id of ['rr-list', 'rr-again', 'rr-room', 'rr-leave', 'rr-more']) {
+    ok('結算浮層有 ' + id, race.includes('id="' + id + '"'));
+  }
+  const app = read('public/js/app.js');
+  ok('單機與線上都走同一個浮層', /showRaceResult\(G\.lastResults\)/.test(app));
+  ok('線上「再玩一場」就地準備，不跳頁', /readyAgain\(\)/.test(app));
+}
+
 /* ---------- 4. 對戰畫面的資訊配置：Summary 與聊天都在左側 ---------- */
 ok('有操作 Summary', ids.has('summary'));
 ok('Summary 顯示名次、圈數、本圈時間、道具、蠕動槽',

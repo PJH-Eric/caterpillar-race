@@ -405,6 +405,14 @@
     paintRoom();
   }
 
+  /** 結算浮層上的「再玩一場」：把房間收回大廳狀態，順手把自己標成準備好 */
+  function readyAgain() {
+    if (!O.net) return false;
+    O.net.send({ type: 'again' });
+    O.net.send({ type: 'ready', ready: true });
+    return true;
+  }
+
   /* ================================================================
    *  七、接線
    * ================================================================ */
@@ -449,7 +457,7 @@
   }
 
   root.Online = {
-    open, leave, leaveRoom, backToRoom, tick, statusText,
+    open, leave, leaveRoom, backToRoom, readyAgain, tick, statusText,
     get room() { return O.room; },
     get meId() { return O.meId; },
     inviteUrl, O

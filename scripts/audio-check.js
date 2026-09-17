@@ -16,7 +16,7 @@ console.log('音訊\n');
 
 ok('主旋律有四小節', Audio2.MELODY.length === 32, Audio2.MELODY.length);
 ok('主旋律不是一片休止', Audio2.MELODY.filter(n => n !== null).length > 20);
-ok('六個賽道主題各有一組樂器', Object.keys(Audio2.VOICES).length === 6);
+ok('每個賽道主題都各有一組樂器', Object.keys(Audio2.VOICES).length >= 9, Object.keys(Audio2.VOICES).length);
 ok('每個賽道主題都有對應的樂器',
   Object.keys(TrackArt.THEMES).every(id => Audio2.VOICES[id]),
   Object.keys(TrackArt.THEMES).filter(id => !Audio2.VOICES[id]).join(','));

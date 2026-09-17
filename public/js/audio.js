@@ -23,7 +23,13 @@
     branch: { wave: 'sine', root: 65, decay: 0.55, bassWave: 'sine', bright: 0.9 },
     pond: { wave: 'sine', root: 72, decay: 0.62, bassWave: 'triangle', bright: 1.1 },
     candy: { wave: 'triangle', root: 74, decay: 0.26, bassWave: 'square', bright: 1.2 },
-    shroom: { wave: 'sawtooth', root: 62, decay: 0.48, bassWave: 'sine', bright: 0.6 }
+    shroom: { wave: 'sawtooth', root: 62, decay: 0.48, bassWave: 'sine', bright: 0.6 },
+    /* 海灣：明亮開闊，尾音拖長一點像風 */
+    beach: { wave: 'triangle', root: 71, decay: 0.70, bassWave: 'sine', bright: 1.15 },
+    /* 峽谷：低、乾、短促，像在石頭之間彈回來 */
+    canyon: { wave: 'square', root: 60, decay: 0.34, bassWave: 'triangle', bright: 0.7 },
+    /* 雪地：高、清透，衰減最長 */
+    snow: { wave: 'sine', root: 76, decay: 0.80, bassWave: 'sine', bright: 1.25 }
   };
 
   function midi(n) { return 440 * Math.pow(2, (n - 69) / 12); }
