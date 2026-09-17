@@ -156,6 +156,8 @@ ok('房主才看得到房間設定', /room-owner-only/.test(html) && /ownerBox\.
   ok('兩邊共用同一支 buildTrackGrid', /App\.buildTrackGrid\(grid/.test(online) && /function buildTrackGrid/.test(app));
   ok('分頁放不下會換行，不是橫向捲', /\.track-tabs\s*\{[^}]*flex-wrap:\s*wrap/.test(css) &&
     !/\.track-tabs\s*\{[^}]*overflow-x:\s*auto/.test(css));
+  ok('賽道格子依視窗可用高度展開，只有放不下才捲動',
+    /\.track-grid\s*\{[^}]*max-height:\s*min\(calc\(100vh - 170px\), 520px\)[^}]*overflow-y:\s*auto/.test(css));
   ok('賽道格子自己捲動，不會把整頁撐長', /\.track-grid\s*\{[^}]*max-height/.test(css) &&
     /\.track-grid\s*\{[^}]*overflow-y:\s*auto/.test(css));
   ok('分頁狀態記在格子上（單機與房間各記各的）', /grid\.dataset\.tab/.test(app));

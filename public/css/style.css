@@ -221,7 +221,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .track-tab .t-n { opacity: .55; margin-left: 4px; font-size: .85em; font-weight: 700; }
 .track-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px;
-  max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain;
+  max-height: min(calc(100vh - 170px), 520px); overflow-y: auto; overscroll-behavior: contain;
   padding: 2px; margin: -2px; scrollbar-width: thin;
 }
 .track-grid:empty::after { content: '這一類還沒有賽道'; color: var(--ink-soft); font-size: .8em; }
