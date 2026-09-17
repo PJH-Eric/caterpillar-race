@@ -35,7 +35,7 @@
       rock: '#8C7A5E', rockDark: '#62543F',
       sky2: '#8FC9E8', skyLow: '#DFF0F7',
       hill: '#4F8A46', hillDark: '#366631', sun: '#FFE9B0',
-      decor: ['leaf', 'acorn', 'twig'], night: false
+      decor: ['twig', 'acorn', 'clover'], night: false
     },
     pond: {
       name: '水窪淺灘',

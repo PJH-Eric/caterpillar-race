@@ -481,11 +481,12 @@
       out.push({
         f: f0,
         draw: ctx => {
-          const CELLS = 10;
+          /* 格子大一點、三排，遠遠就看得出來那是終點線 */
+          const CELLS = 8, ROWS = 3, ROW_H = 17;
           for (let i = 0; i < CELLS; i++) {
-            for (let j = 0; j < 2; j++) {
+            for (let j = 0; j < ROWS; j++) {
               const o1 = (i / CELLS * 2 - 1) * n0.w, o2 = ((i + 1) / CELLS * 2 - 1) * n0.w;
-              const t1 = (j - 1) * 13, t2 = j * 13;
+              const t1 = (j - ROWS / 2) * ROW_H, t2 = (j - ROWS / 2 + 1) * ROW_H;
               const q = [
                 P.pt(n0.x + n0.nx * o1 + n0.tx * t1, n0.y + n0.ny * o1 + n0.ty * t1, 0),
                 P.pt(n0.x + n0.nx * o2 + n0.tx * t1, n0.y + n0.ny * o2 + n0.ty * t1, 0),
@@ -763,47 +764,67 @@
   }
 
   /** 道具葉：浮在地面上方，底下有影子 */
+  /**
+   * 道具點：一顆會轉的泡泡，裡面包一片葉子。
+   *
+   * 原本只畫一片立著的葉子，結果跟路邊的裝飾葉子長得一模一樣，
+   * 誰也看不出那是「撞下去會拿到道具」的東西。改成泡泡之後，
+   * 地上有光圈、身上有高光、還會慢慢轉，一眼就知道是要去撞的。
+   */
   function drawLeaf(ctx, bx, by, s, t, seed, f) {
-    const lift = (22 + Math.sin(t * 3 + seed) * 3) * s;
-    const r = 15 * s;
+    const lift = (24 + Math.sin(t * 2.2 + seed) * 3.5) * s;
+    const r = 17 * s;
     /* 靠太近就淡出：鏡頭在玩家後面，中間的葉子會被放到超大擋住畫面 */
     const near = Math.max(0, Math.min(1, (f - 55) / 90));
     if (near <= 0.02) return;
     ctx.save();
     ctx.globalAlpha = near;
 
+    /* 地上的光圈：告訴你「這裡有東西」，而且標出撞得到的位置 */
     ctx.save();
-    ctx.globalAlpha = near * 0.18;
+    ctx.globalAlpha = near * (0.35 + 0.12 * Math.sin(t * 3 + seed));
+    ctx.strokeStyle = '#FFD54A';
+    ctx.lineWidth = Math.max(1, r * 0.16);
+    ctx.beginPath(); ctx.ellipse(bx, by, r * 0.95, r * 0.38, 0, 0, TAU); ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = near * 0.16;
     ctx.fillStyle = '#000';
-    ctx.beginPath(); ctx.ellipse(bx + r * 0.2, by, r * 0.75, r * 0.3, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(bx, by, r * 0.62, r * 0.25, 0, 0, TAU); ctx.fill();
     ctx.restore();
 
     const cy = by - lift;
-    if (r > 9) {
-      const glow = ctx.createRadialGradient(bx, cy, r * 0.2, bx, cy, r * 1.6);
-      glow.addColorStop(0, 'rgba(255,255,255,.7)');
-      glow.addColorStop(0.55, 'rgba(255,248,190,.3)');
-      glow.addColorStop(1, 'rgba(255,248,190,0)');
-      ctx.fillStyle = glow;
-      ctx.beginPath(); ctx.arc(bx, cy, r * 1.6, 0, TAU); ctx.fill();
-
-      const lg = ctx.createLinearGradient(bx - r * 0.6, cy - r, bx + r * 0.6, cy + r);
-      lg.addColorStop(0, '#C6F08C');
-      lg.addColorStop(0.5, '#8BD44A');
-      lg.addColorStop(1, '#4F9420');
-      ctx.fillStyle = lg;
-    } else {
-      ctx.fillStyle = '#8BD44A';
-    }
+    /* 泡泡裡的葉子：左右擺一點，看得出來它在轉 */
+    const spin = Math.sin(t * 1.6 + seed);
+    const lw = r * 0.5 * Math.max(0.25, Math.abs(spin));
+    ctx.fillStyle = '#8BD44A';
     ctx.beginPath();
-    ctx.moveTo(bx, cy - r);
-    ctx.quadraticCurveTo(bx + r * 0.9, cy, bx, cy + r);
-    ctx.quadraticCurveTo(bx - r * 0.9, cy, bx, cy - r);
+    ctx.moveTo(bx, cy - r * 0.62);
+    ctx.quadraticCurveTo(bx + lw, cy, bx, cy + r * 0.62);
+    ctx.quadraticCurveTo(bx - lw, cy, bx, cy - r * 0.62);
     ctx.fill();
     ctx.strokeStyle = '#3C7A14';
-    ctx.lineWidth = Math.max(0.6, r * 0.1);
+    ctx.lineWidth = Math.max(0.6, r * 0.08);
     ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(bx, cy - r * 0.85); ctx.lineTo(bx, cy + r * 0.85); ctx.stroke();
+
+    /* 泡泡本體 */
+    if (r > 9) {
+      const bub = ctx.createRadialGradient(bx - r * 0.35, cy - r * 0.4, r * 0.1, bx, cy, r);
+      bub.addColorStop(0, 'rgba(255,255,255,.75)');
+      bub.addColorStop(0.55, 'rgba(255,255,255,.14)');
+      bub.addColorStop(1, 'rgba(180,230,255,.34)');
+      ctx.fillStyle = bub;
+      ctx.beginPath(); ctx.arc(bx, cy, r, 0, TAU); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,.9)';
+    ctx.lineWidth = Math.max(1, r * 0.09);
+    ctx.beginPath(); ctx.arc(bx, cy, r, 0, TAU); ctx.stroke();
+    if (r > 7) {
+      ctx.fillStyle = 'rgba(255,255,255,.95)';
+      ctx.beginPath();
+      ctx.ellipse(bx - r * 0.38, cy - r * 0.42, r * 0.22, r * 0.13, -0.6, 0, TAU);
+      ctx.fill();
+    }
     ctx.restore();
   }
 

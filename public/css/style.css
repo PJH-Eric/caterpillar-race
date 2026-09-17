@@ -377,6 +377,33 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 }
 .countdown[hidden] { display: none; }
 
+/* 衝線名次：放在畫面上方，不要壓到毛毛蟲身上 */
+.finish-banner {
+  position: absolute; inset: 0; z-index: 21;
+  display: grid; justify-items: center; align-content: start; gap: 2px;
+  padding-top: 20%;
+  pointer-events: none; text-align: center;
+  animation: finishPop .45s cubic-bezier(.2, 1.5, .4, 1);
+}
+.finish-banner[hidden] { display: none; }
+.finish-banner .fb-pos {
+  font-size: clamp(1.9rem, 7.5vw, 4rem); font-weight: 800; line-height: 1.05;
+  color: #fff; text-shadow: 0 4px 0 rgba(0,0,0,.22), 0 0 18px rgba(255,213,74,.7);
+}
+.finish-banner.win .fb-pos { color: #FFE9A8; }
+.finish-banner .fb-sub {
+  font-size: clamp(.8rem, 2.4vw, 1.1rem); font-weight: 800;
+  color: #fff; text-shadow: 0 2px 0 rgba(0,0,0,.26);
+}
+/* 矮畫面（手機橫向）再往上收一點，不然還是會碰到毛毛蟲 */
+@media (max-height: 520px) { .finish-banner { padding-top: 13%; } }
+@keyframes finishPop {
+  0%   { transform: scale(.4); opacity: 0; }
+  60%  { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .finish-banner { animation: none; } }
+
 .toast-wrap {
   position: absolute; z-index: 18; left: 50%; top: 16%;
   transform: translateX(-50%);

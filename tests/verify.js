@@ -137,6 +137,49 @@ group('二、基本物理');
     shortTurn.toFixed(3) + ' vs ' + longTurn.toFixed(3));
 }
 {
+  /* 終點線：圈數一定要在「越過終點線那一刻」才進位。
+   * 起跑格排在終點線後面，所以 cpCount 開局是負的；
+   * 少補這一段的話，最後一個檢查點就會進位 —— 還沒到線就被判定完賽。 */
+  const st = race({ laps: 2 });
+  const r = st.racers[0];
+  const CP = st.track.checkpoints;
+  ok('起跑格在終點線後面（檢查點是最後一個）', r.cp === CP - 1, r.cp + '/' + CP);
+  ok('開局的檢查點累計是負的', r.cpCount < 0, r.cpCount);
+
+  let lastCp = r.cp, crossings = [], lapAt = [];
+  let lastLap = r.lap, t = 0;
+  while (st.phase !== 'finished' && t < 60 * 90) {
+    const inputs = {}; inputs[r.id] = AI.input(st, r);
+    Rules.step(st, inputs);
+    if (lastCp === CP - 1 && r.cp === 0) crossings.push(+st.raceT.toFixed(2));
+    if (r.lap > lastLap) { lapAt.push(+st.raceT.toFixed(2)); lastLap = r.lap; }
+    lastCp = r.cp; t++;
+  }
+  ok('越線三次（起跑線 ＋ 兩圈）', crossings.length === 3, crossings.join(','));
+  ok('每一圈都剛好在越線那一刻進位',
+    lapAt.length === 2 && lapAt[0] === crossings[1] && lapAt[1] === crossings[2],
+    '進位 ' + lapAt.join(',') + ' vs 越線 ' + crossings.slice(1).join(','));
+  ok('完賽時間等於最後一次越線', Math.abs(r.finishTime - crossings[2]) < 0.02,
+    r.finishTime.toFixed(2) + ' vs ' + crossings[2]);
+}
+{
+  /* 第一名衝線後開始倒數，時間到就收局，還沒到終點的人算沒跑完 */
+  const st = race({ laps: 2, racers: [
+    { id: 'a', name: '快', kind: 'ai', difficulty: 'hard' },
+    { id: 'b', name: '慢', kind: 'ai', difficulty: 'baby' }
+  ] });
+  ok('開局還沒有收局時間', st.graceEnd === 0);
+  drive(st, 60 * 180);
+  ok('第一名完賽後才設收局時間', st.graceEnd > st.firstFinishAt, st.graceEnd.toFixed(1));
+  ok('倒數剛好是 FINISH_GRACE 秒',
+    Math.abs((st.graceEnd - st.firstFinishAt) - Rules.C.FINISH_GRACE) < 0.001,
+    (st.graceEnd - st.firstFinishAt).toFixed(3));
+  ok('收局不會晚於倒數結束', st.raceT <= st.graceEnd + Rules.C.TICK + 0.001,
+    st.raceT.toFixed(2) + ' vs ' + st.graceEnd.toFixed(2));
+  ok('倒數內沒到終點的人算沒跑完',
+    st.racers.every(r => r.finished || r.finishTime >= st.graceEnd - 0.001));
+}
+{
   /* 草地比跑道慢。
    * 本來是丟到草地上跑 60 個 tick 再量，但沒有人扶方向盤，
    * 毛毛蟲跑一跑會自己飄回跑道上、速度跟著回滿 —— 量到的是「已經回到路上」。

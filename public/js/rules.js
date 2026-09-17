@@ -26,7 +26,7 @@
     /* 模擬 */
     TICK: 1 / 30,              /* 權威迴圈頻率，前端預測也用同一個步長 */
     COUNTDOWN: 3.0,            /* 開跑前倒數 */
-    FINISH_GRACE: 20.0,        /* 第一名完賽後，其他人還有多久 */
+    FINISH_GRACE: 10.0,        /* 第一名完賽後，其他人還有 10 秒可以衝線 */
 
     /* 車體 */
     BODY_R: 11,                /* 碰撞半徑 */
@@ -34,8 +34,8 @@
     SEG_GAP: 9,
 
     /* 速度 */
-    BASE_SPEED: 195,           /* 跑道上的基礎速度（單位／秒） */
-    ACCEL: 520,
+    BASE_SPEED: 180,           /* 跑道上的基礎速度（單位／秒） */
+    ACCEL: 450,
     BRAKE: 1050,               /* 目標比現在慢時，掉速比加速快 */
     GAS_UP: 1.0,               /* 鍵盤「上」：按住就是基礎速度，不再額外加成 */
     GAS_DOWN: -0.34,           /* 鍵盤「下」：煞停之後慢慢倒退 */
@@ -110,6 +110,13 @@
    *   seed      亂數種子
    *   allowBad  是否開放負面道具
    */
+  /** 起跑格離終點線還差幾個檢查點（回傳負數；已經在線上或線後就是 0） */
+  function startOffset(track, node) {
+    const CP = track.checkpoints;
+    const c0 = Tracks.checkpointOf(track, node);
+    return c0 === 0 ? 0 : -(CP - c0);
+  }
+
   function createRace(opt) {
     const track = opt.track;
     const laps = opt.laps || track.laps;
@@ -132,7 +139,12 @@
 
         node: start.node,
         cp: Tracks.checkpointOf(track, start.node),
-        cpCount: 0,              /* 累計通過的檢查點數（可正可負），圈數由它算出來 */
+        /* 累計通過的檢查點數（可正可負），圈數由它算出來。
+         * 起跑格在終點線「後面」，所以開局要先補一段負的：
+         * 越過終點線那一刻剛好是 0，繞完一圈是 CP，圈數才會在線上進位。
+         * 不補的話，第一圈會在最後一個檢查點就進位 —— 也就是還沒到終點線
+         * 就被判定完賽，賽道越長、速度越慢差得越明顯。 */
+        cpCount: startOffset(track, start.node),
         lap: 0,
         started: false,          /* 有沒有越過起跑線開始計第一圈 */
         lapStart: 0,
@@ -176,6 +188,7 @@
       raceT: 0,                  /* 開跑之後的比賽時間 */
       phase: 'countdown',        /* countdown → racing → finished */
       firstFinishAt: 0,
+      graceEnd: 0,               /* 第一名完賽後，收局的時間點 */
 
       racers,
       leaves,
@@ -449,7 +462,7 @@
     if (cp === (r.cp + 1) % CP) { r.cp = cp; r.cpCount++; }
     else if (cp === (r.cp - 1 + CP) % CP) { r.cp = cp; r.cpCount--; }
 
-    if (r.cpCount >= 1 && !r.started) {
+    if (r.cpCount >= 0 && !r.started) {
       r.started = true;
       r.lapStart = state.raceT;
     }
@@ -472,7 +485,11 @@
   function finish(state, r) {
     r.finished = true;
     r.finishTime = state.raceT;
-    if (!state.firstFinishAt) state.firstFinishAt = state.raceT;
+    if (!state.firstFinishAt) {
+      state.firstFinishAt = state.raceT;
+      /* 第一名衝線就開始倒數，時間到還沒到終點的人就算沒跑完，這一局也跟著結束 */
+      state.graceEnd = state.raceT + C.FINISH_GRACE;
+    }
     state.events.push({ type: 'finish', id: r.id, time: r.finishTime });
   }
 
@@ -580,17 +597,21 @@
         }
       }
 
-      /* 道具葉 */
-      if (!r.item && state.t >= r.itemReadyAt) {
-        for (const leaf of state.leaves) {
-          if (state.t < leaf.readyAt) continue;
-          if (Math.hypot(r.x - leaf.x, r.y - leaf.y) < C.LEAF_R + C.BODY_R) {
-            leaf.readyAt = state.t + C.LEAF_RESPAWN;
-            r.item = Items.draw(state.rng, r.rank, state.racers.length, state.allowBad && allowBadFor(r));
-            state.events.push({ type: 'pick', id: r.id, item: r.item });
-            break;
-          }
+      /* 道具葉。
+       * 撞到就一定吃掉（葉子消失、過幾秒再長回來），手上已經有道具的話
+       * 只是拿不到新的而已 —— 本來是「有道具就整個跳過」，結果撞上去葉子
+       * 還好端端地留在原地，看起來就像撞不到。 */
+      for (const leaf of state.leaves) {
+        if (state.t < leaf.readyAt) continue;
+        if (Math.hypot(r.x - leaf.x, r.y - leaf.y) >= C.LEAF_R + C.BODY_R) continue;
+        leaf.readyAt = state.t + C.LEAF_RESPAWN;
+        if (!r.item && state.t >= r.itemReadyAt) {
+          r.item = Items.draw(state.rng, r.rank, state.racers.length, state.allowBad && allowBadFor(r));
+          state.events.push({ type: 'pick', id: r.id, item: r.item });
+        } else {
+          state.events.push({ type: 'full', id: r.id });
         }
+        break;
       }
 
       updateProgress(state, r);
@@ -601,7 +622,7 @@
 
     /* 全員完賽，或第一名完賽超過寬限時間，就收局 */
     const alive = state.racers.filter(r => !r.finished && !r.ghost);
-    if (!alive.length || (state.firstFinishAt && state.raceT - state.firstFinishAt > C.FINISH_GRACE)) {
+    if (!alive.length || (state.graceEnd && state.raceT > state.graceEnd)) {
       state.phase = 'finished';
       for (const r of state.racers) if (!r.finished) { r.finishTime = state.raceT; }
       updateRanks(state);

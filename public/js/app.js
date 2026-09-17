@@ -368,6 +368,9 @@
 
     /* 軌跡初始化：往後補一段，開局就有身體，不會縮成一坨 */
     G.trails = {};
+    G.finishShown = 0;
+    if (G.resultTimer) { root.clearTimeout(G.resultTimer); G.resultTimer = 0; }
+    $('finish-banner').hidden = true;
     for (const r of G.state.racers) {
       const hist = [];
       for (let i = 0; i < 40; i++) {
@@ -515,6 +518,7 @@
       else if (e.type === 'blocked') { G.audio.play('blocked'); toast('泡泡幫你擋下來了'); }
       else if (e.type === 'dodge') { toast('飄過去了！'); }
       else if (e.type === 'lap') { G.audio.play('lap'); toast('第 ' + Math.min(G.state.laps, e.lap + 1) + ' 圈'); }
+      else if (e.type === 'full') { if (e.id === G.meId) toast('手上已經有道具了'); }
       else if (e.type === 'finish') { G.audio.play('finish'); }
     }
   }
@@ -739,6 +743,7 @@
     drawNameplates(ctx, P);
     drawMini();
     drawCountdown();
+    drawFinishBanner();
   }
 
   function drawRacer(ctx, P, r) {
@@ -790,7 +795,7 @@
   const SHAPE = { circle: 0, square: 1, heart: 2, drop: 3, star: 4, diamond: 5, leaf: 6, triangle: 7 };
 
   function drawNameplates(ctx, P) {
-    const v = G.view;
+    const v = G.view, st = G.state;
     ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
@@ -808,6 +813,10 @@
       const fade = Math.max(0, Math.min(1, (1100 - p.f) / 500));
       if (fade <= 0.05) continue;
       const ch = Chars.get(r.char);
+      /* 第一名衝線後，還沒到終點的人頭上會多一個倒數。
+       * 字不用大，但要跟名字分得開 —— 所以另外畫一顆紅色小圓牌。 */
+      const left = (st.graceEnd && !r.finished && !r.ghost)
+        ? Math.max(0, Math.ceil(st.graceEnd - st.raceT)) : -1;
       const label = r.name + (r.ghost ? '（掉線）' : '');
       const w = ctx.measureText(label).width + (G.settings.colorAssist ? 24 : 14);
       ctx.globalAlpha = (r.ghost ? 0.4 : 0.92) * fade;
@@ -820,6 +829,20 @@
       }
       ctx.fillStyle = (r.id === G.meId) ? '#2F6B0C' : '#4A4632';
       ctx.fillText(label, p.x + (G.settings.colorAssist ? 5 : 0), p.y);
+
+      if (left >= 0) {
+        const cy = p.y - 26;
+        const urgent = left <= 3;
+        ctx.fillStyle = urgent ? '#E2564E' : 'rgba(51,48,31,.86)';
+        ctx.beginPath(); ctx.arc(p.x, cy, 11, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = '800 13px "Noto Sans TC", system-ui, sans-serif';
+        ctx.fillText(String(left), p.x, cy + 4.5);
+        ctx.font = '700 12px "Noto Sans TC", system-ui, sans-serif';
+      }
       ctx.globalAlpha = 1;
     }
   }
@@ -903,6 +926,30 @@
     }
     ctx.globalAlpha = 1;
     ctx.restore();
+  }
+
+  /* 自己衝過終點線的那一刻，畫面正中央大大地報名次。
+   * 只報一次，之後就掛在那裡直到結算畫面接手（寬限時間裡還看得到別人在跑）。 */
+  const FINISH_SUB = { 1: '第一名！', 2: '差一點點', 3: '還不錯', 4: '再來一次' };
+  function drawFinishBanner() {
+    const st = G.state, me = myRacer();
+    const el = $('finish-banner');
+    if (!st || !me || !me.finished || st.phase === 'countdown') {
+      if (!el.hidden) el.hidden = true;
+      return;
+    }
+    if (G.finishShown !== me.rank) {
+      G.finishShown = me.rank;
+      $('fb-pos').textContent = '第 ' + me.rank + ' 名';
+      $('fb-sub').textContent = FINISH_SUB[me.rank] || '完賽';
+      el.classList.toggle('win', me.rank === 1);
+      el.hidden = false;
+      /* 重播一次彈出動畫 */
+      el.style.animation = 'none';
+      void el.offsetWidth;
+      el.style.animation = '';
+
+    }
   }
 
   function drawCountdown() {
@@ -1044,9 +1091,18 @@
       (rec.record ? '<li><span class="record-badge">破紀錄</span><span>' + me.time.toFixed(2) + 's</span></li>' : '') +
       (rec.lapRecord ? '<li><span class="record-badge">最快單圈</span><span>' + me.bestLap.toFixed(2) + 's</span></li>' : '');
 
-    $('again').textContent = (G.mode === 'online') ? '回房間' : '再來一局';
+    /* 線上時按鈕講清楚：主要動作是「留在房間」，要離開得自己按 */
+    const online = (G.mode === 'online');
+    $('again').textContent = online ? '回房間' : '再來一局';
+    $('result-home').textContent = online ? '離開房間' : '回首頁';
     G.audio.stopBgm();
-    show('result');
+    /* 衝線之後先讓畫面停一秒：看得到自己的名次、終點線、還有誰沒跑完，
+     * 再切到結算。收局的瞬間就換頁的話，那一格名次根本來不及看。 */
+    if (G.resultTimer) root.clearTimeout(G.resultTimer);
+    G.resultTimer = root.setTimeout(() => {
+      G.resultTimer = 0;
+      show('result');
+    }, 1000);
   }
 
   /* ================================================================
