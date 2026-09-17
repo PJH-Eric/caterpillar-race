@@ -110,6 +110,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   display: grid; place-items: center;
 }
 .gear svg { width: 26px; height: 26px; fill: currentColor; }
+.gear[hidden] { display: none; }
 /* 比賽中的暫停鍵：排在齒輪左邊，跟 Esc 是同一件事（手機沒有鍵盤，一定要有得按） */
 #btn-pause { right: calc(var(--safe-r) + 66px); }
 #btn-pause svg { width: 22px; height: 22px; }

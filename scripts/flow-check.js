@@ -96,7 +96,8 @@ ok('暫停鍵跟 Esc 走同一個入口',
   /onPause/.test(app));
 ok('暫停選單可以回房間', /\$\('pause-room'\)\.addEventListener/.test(app) && /backToRoom\(\)/.test(app));
 ok('暫停鍵只在比賽中、而且只在單機出現',
-  /pauseBtn\.hidden = !\(D\.body\.dataset\.screen === 'race' && G\.mode !== 'online'/.test(app));
+  /pauseBtn\.hidden = !\(D\.body\.dataset\.screen === 'race' && G\.mode !== 'online'/.test(app) &&
+  /G\.state\.phase === 'racing'/.test(app) && /!G\.paused/.test(app) && /\.gear\[hidden\]\s*\{\s*display:\s*none/.test(css));
 ok('暫停鍵不會壓到齒輪', /#btn-pause \{[^}]*right:/.test(css));
 ok('Summary 靠左', /\.summary\s*\{[^}]*left:/.test(css));
 ok('聊天室在左下', /\.chat-dock\s*\{[^}]*left:[^}]*bottom:/.test(css));

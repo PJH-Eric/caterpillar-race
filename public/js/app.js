@@ -155,13 +155,13 @@
     if (name === 'home' || name === 'setup') G.audio.setTheme(G.settings.lastTrack || 'garden');
   }
 
-  /* 暫停鍵只屬於正在看的賽道畫面，結算浮層蓋上來時也要收起來。 */
+  /* 暫停鍵只在倒數結束、確實能操作的比賽中出現。 */
   function syncPauseButton() {
     const pauseBtn = $('btn-pause');
     if (!pauseBtn) return;
     const result = $('race-result');
     pauseBtn.hidden = !(D.body.dataset.screen === 'race' && G.mode !== 'online' &&
-      (!G.state || G.state.phase !== 'finished') && (!result || result.hidden));
+      G.state && G.state.phase === 'racing' && !G.paused && (!result || result.hidden));
   }
 
   /* ================================================================
