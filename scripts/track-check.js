@@ -173,5 +173,69 @@ function selfOverlap(tr) {
   ok('沒有賽道寬到自己黏住自己', glued.length === 0, glued.slice(0, 5).join(', '));
 }
 
+/* ---------- 彎道不能比毛毛蟲轉得過去的還急 ----------
+ * 蠕動衝刺一發動大概是 260 的速度；那個速度的迴轉半徑算出來當門檻。
+ * 賽道有一成以上的地方比這還彎的話，玩家一衝刺就會撞出去，
+ *「有點難控制」就是從這裡來的。
+ */
+{
+  const C = Rules.C;
+  const BOOST_SPEED = 260;
+  const turn = C.TURN * (1 - C.TURN_SPEED_FALLOFF * Math.min(1, BOOST_SPEED / C.BASE_SPEED));
+  const minR = BOOST_SPEED / turn;
+
+  /** 每個節點的局部轉彎半徑，由小到大 */
+  function radii(tr) {
+    const nd = tr.nodes, n = nd.length, out = [];
+    const at = i => nd[Tracks.idx(tr, i)];
+    for (let i = 0; i < n; i++) {
+      const a = at(i - 2), b = at(i), c = at(i + 2);
+      const ax = b.x - a.x, ay = b.y - a.y, bx = c.x - b.x, by = c.y - b.y;
+      const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+      const ang = Math.abs(Math.atan2(ax * by - ay * bx, ax * bx + ay * by));
+      out.push(ang < 1e-6 ? Infinity : (la + lb) * 0.5 / ang);
+    }
+    return out.sort((x, y) => x - y);
+  }
+
+  const bad = [];
+  const check = (name, tr) => {
+    const rs = radii(tr);
+    const tight = rs.filter(r => r < minR).length / rs.length;
+    if (tight > 0.10) bad.push(name + ' ' + (tight * 100).toFixed(0) + '%');
+  };
+  for (const def of Tracks.TRACKS) check(def.id, Tracks.build(def));
+  for (let i = 0; i < 40; i++) check('rnd' + i, Tracks.get('random', 'turn-' + i));
+  ok('衝刺速度下轉得過去的彎（比 ' + minR.toFixed(0) + ' 還急的路段 ≤ 10%）',
+    bad.length === 0, bad.slice(0, 6).join(', '));
+
+  /* 真人不是每一幀都在修方向。模擬「反應慢 0.25 秒、而且全程都在衝刺」的玩家，
+   * 這樣還會被甩到草地上的話，賽道就是太難控制了。 */
+  const wild = [];
+  for (const def of Tracks.TRACKS) {
+    const tr = Tracks.build(def);
+    const st = Rules.createRace({ track: tr, laps: 1, seed: 'grip-' + def.id,
+      racers: [{ id: 'a', kind: 'human', difficulty: 'normal' }] });
+    let n = 0, grass = 0, held = { steer: 0, gas: 1, man: 0, use: false };
+    while (st.phase !== 'finished' && n < 30 * 300) {
+      const r = st.racers[0];
+      r.wiggle.until = st.t + 5;                  /* 衝刺一直開著 */
+      if (n % 8 === 0) {                          /* 每 0.25 秒才改一次方向 */
+        r.kind = 'ai'; r.difficulty = 'hard';
+        const i = AI.input(st, r);
+        r.kind = 'human'; r.difficulty = 'normal';
+        held = { steer: i.steer, gas: 1, man: 0, use: false };
+      }
+      Rules.step(st, { a: held });
+      if (Tracks.surfaceAt(tr, r.x, r.y) === Tracks.SURFACE.GRASS) grass++;
+      n++;
+    }
+    const pct = grass / Math.max(1, n) * 100;
+    if (pct > 4) wild.push(def.id + ' ' + pct.toFixed(0) + '%');
+  }
+  ok('反應慢半拍的玩家全程衝刺也不會一直被甩到草地（≤ 4%）',
+    wild.length === 0, wild.slice(0, 6).join(', '));
+}
+
 console.log('\n賽道：' + pass + ' 通過，' + fail + ' 失敗');
 process.exit(fail ? 1 : 0);

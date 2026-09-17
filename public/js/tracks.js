@@ -70,12 +70,18 @@
     }
     if (!closed) dense.push(ctrl[n - 1].slice());
 
-    let nodes = resample(dense, closed);
+    const raw = resample(dense, closed);
     /* 控制點被切角之後，Catmull-Rom 在角上會擠出半徑只有十幾單位的尖角：
-     * 中心線一折，畫出來的路面就是一片一片歪掉的鋸齒。先把中心線的曲率壓下來，
-     * 之後畫路面、鋪地表格、AI 走線用的都是同一條順的線。 */
-    nodes = smoothCurve(nodes, closed);
-    return resample(nodes.map(nd => [nd.x, nd.y, nd.w]), closed);
+     * 中心線一折，畫出來的路面就是一片一片歪掉的鋸齒，而且那種彎毛毛蟲
+     * 根本轉不過去。先把中心線的曲率壓下來，之後畫路面、鋪地表格、
+     * AI 走線用的都是同一條順的線。 */
+    const smooth = smoothCurve(raw, closed);
+    const out = resample(smooth.map(nd => [nd.x, nd.y, nd.w]), closed);
+    /* 抹過之後彎道會被切短；build() 要靠這個比例把整張圖等比例放大補回來，
+     * 長度回到原本那樣，彎道半徑也順便一起撐大。 */
+    const before = polyLength(raw, closed), after = polyLength(out, closed);
+    out.shrink = before > 1 ? after / before : 1;
+    return out;
   }
 
   /** 依距離重新取樣成等間距節點，進度計算才準 */
@@ -123,7 +129,7 @@
    * 直線完全不受影響，大彎只會往內縮 σ²/2R（幾十單位的彎大概 3%），
    * 所以賽道的形狀、長度、難度都還是原來那樣。
    * 一次算完，不用迭代，每張賽道的結果也都是固定的。 */
-  const SMOOTH_SIGMA = 42;        /* 高斯的標準差（單位）；也大致是磨出來的最小轉彎半徑 */
+  const SMOOTH_SIGMA = 120;        /* 高斯的標準差（單位）；也大致是磨出來的最小轉彎半徑 */
 
   function polyLength(nodes, closed) {
     let L = 0;
@@ -134,11 +140,11 @@
 
   function smoothCurve(nodes, closed) {
     /* 抹得太兇的話，來回折的兩段路有機會被平均在一起、整個塌掉。
-     * 長度掉超過一成就換小一點的 σ 再來一次，形狀一定保得住。 */
+     * 長度掉超過四成就換小一點的 σ 再來一次，形狀一定保得住。 */
     const before = polyLength(nodes, closed);
     for (let sigma = SMOOTH_SIGMA; sigma >= SMOOTH_SIGMA / 4; sigma /= 2) {
       const out = blurCurve(nodes, closed, sigma);
-      if (out === nodes || polyLength(out, closed) >= before * 0.9) return out;
+      if (out === nodes || polyLength(out, closed) >= before * 0.62) return out;
     }
     return nodes;
   }
@@ -388,7 +394,24 @@
   function build(def) {
     const open = !!def.open;          /* 衝刺賽道：起點到終點，不繞圈 */
     let ctrl = def.ctrl;
-    let nodes = addTangents(sample(ctrl, !open), !open);
+    let raw = sample(ctrl, !open);
+    let grow = 1;
+    /* 平滑會把急彎切短。等比例放大補回來：賽道長度跟原本一樣，
+     * 但每個彎的半徑都跟著變大 —— 這是「衝刺中轉不過彎」的主因。
+     * 放大之後同樣的 σ 相對變弱，縮水也會變少，所以跑幾輪讓它收斂。 */
+    const FIX_MAX = 1.30;             /* 補償最多放大到這樣，免得賽道被拉得又臭又長 */
+    let fixed = 1;
+    for (let round = 0; round < 4; round++) {
+      const sh = raw.shrink || 1;
+      if (sh > 0.985) break;
+      const fix = Math.min(1 / sh, FIX_MAX / fixed);
+      if (fix <= 1.005) break;
+      fixed *= fix;
+      grow *= fix;
+      ctrl = ctrl.map(p => [p[0] * fix, p[1] * fix, p[2]]);
+      raw = sample(ctrl, !open);
+    }
+    let nodes = addTangents(raw, !open);
     let wideK = fitWiden(nodes);
     /* 有些賽道（菜園迷宮、夜光蘑菇）自己繞回來的地方本來就很擠，
      * 路面根本加不寬。那就把整張圖等比例放大 —— 形狀一模一樣，
@@ -396,12 +419,11 @@
     const avgW = () => nodes.reduce((a, nd) => a + nd.w, 0) / nodes.length;
     if (wideK.k < 1.35 || avgW() < 112) {
       const GROW = 1.32;
+      grow *= GROW;
       ctrl = ctrl.map(p => [p[0] * GROW, p[1] * GROW, p[2]]);
       nodes = addTangents(sample(ctrl, !open), !open);
       wideK = fitWiden(nodes);
     }
-    const scaled = ctrl !== def.ctrl;
-    const grow = scaled ? 1.32 : 1;
     const shortcuts = (def.shortcuts || []).map(sc => ({
       nodes: widenBy(addTangents(sample(
         grow === 1 ? sc.ctrl : sc.ctrl.map(p => [p[0] * grow, p[1] * grow, p[2]]), false), false), wideK),
@@ -422,8 +444,33 @@
     const grid = makeGrid(bounds);
     paintRibbon(grid, nodes, SURFACE.TRACK, true);
     for (const sc of shortcuts) paintRibbon(grid, sc.nodes, SURFACE.TRACK, false);
-    const mudList = (def.mud || []).map(m => [m[0] * grow, m[1] * grow, m[2]]);
-    const boostList = (def.boosts || []).map(b => [b[0] * grow, b[1] * grow, b[2]]);
+    /* 加速帶與泥巴的座標是寫死的；賽道幾何一調整（放大、抹平急彎）就可能被甩到
+     * 路肩外面。統一拉回最近的那段路面上，位置感覺一樣，但永遠不會掉到草地。 */
+    const ontoRoad = (x, y) => {
+      let best = Infinity, bn = -1;
+      for (let i = 0; i < nodes.length; i++) {
+        const dx = nodes[i].x - x, dy = nodes[i].y - y;
+        const d = dx * dx + dy * dy;
+        if (d < best) { best = d; bn = i; }
+      }
+      if (bn < 0) return [x, y];
+      const nd = nodes[bn];
+      const off = (x - nd.x) * nd.nx + (y - nd.y) * nd.ny;
+      const lim = nd.w * 0.72;
+      const k = off > lim ? lim : (off < -lim ? -lim : off);
+      /* 沿著切線的那一點分量保留，橫向才是被夾住的那個 */
+      const along = (x - nd.x) * nd.tx + (y - nd.y) * nd.ty;
+      const keep = Math.max(-NODE_STEP, Math.min(NODE_STEP, along));
+      return [nd.x + nd.tx * keep + nd.nx * k, nd.y + nd.ty * keep + nd.ny * k];
+    };
+    const mudList = (def.mud || []).map(m => {
+      const p2 = ontoRoad(m[0] * grow, m[1] * grow);
+      return [p2[0], p2[1], m[2]];
+    });
+    const boostList = (def.boosts || []).map(b => {
+      const p2 = ontoRoad(b[0] * grow, b[1] * grow);
+      return [p2[0], p2[1], b[2]];
+    });
     for (const m of mudList) paintBlob(grid, m[0], m[1], m[2], SURFACE.MUD);
     for (const b of boostList) paintBlob(grid, b[0], b[1], b[2], SURFACE.BOOST);
 
