@@ -110,8 +110,10 @@
    *   seed      亂數種子
    *   allowBad  是否開放負面道具
    */
-  /** 起跑格離終點線還差幾個檢查點（回傳負數；已經在線上或線後就是 0） */
+  /** 起跑格離終點線還差幾個檢查點（回傳負數；已經在線上或線後就是 0）。
+   * 衝刺賽道（open）沒有終點線可越，開局就算已經起跑了。 */
   function startOffset(track, node) {
+    if (track.open) return 0;
     const CP = track.checkpoints;
     const c0 = Tracks.checkpointOf(track, node);
     return c0 === 0 ? 0 : -(CP - c0);
@@ -465,6 +467,14 @@
     if (r.cpCount >= 0 && !r.started) {
       r.started = true;
       r.lapStart = state.raceT;
+    }
+
+    /* 衝刺賽道：沒有圈數，跑到最後幾個節點就算完賽。
+     * 還是要檢查檢查點累計，免得有人倒著開回起點再從另一頭摸到終點。 */
+    if (track.open) {
+      r.progress = r.node;
+      if (!r.finished && r.node >= N - 4 && r.cpCount >= CP - 2) finish(state, r);
+      return;
     }
     const lap = Math.max(0, Math.floor(r.cpCount / CP));
     if (lap > r.lap) {

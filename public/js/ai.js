@@ -60,8 +60,8 @@
   /** 賽道在某個節點的彎曲方向與程度：正＝往左彎，負＝往右彎 */
   function curvatureAt(track, index, span) {
     const n = track.nodes.length;
-    const a = track.nodes[((index - span) % n + n) % n];
-    const b = track.nodes[((index + span) % n + n) % n];
+    const a = track.nodes[Tracks.idx(track, index - span)];
+    const b = track.nodes[Tracks.idx(track, index + span)];
     /* 兩個切線的夾角（帶正負） */
     const cross = a.tx * b.ty - a.ty * b.tx;
     const dot = a.tx * b.tx + a.ty * b.ty;
@@ -79,7 +79,7 @@
     /* 看多遠：速度越快看越遠，技術越好也看越遠 */
     const skill = 1 - d.lineErr;
     const ahead = lookahead(r, skill);
-    const idx = (r.node + ahead) % n;
+    const idx = Tracks.idx(track, r.node + ahead);
     const nd = track.nodes[idx];
 
     /* 理想線是「外—內—外」，不是一路貼內側。
@@ -91,7 +91,7 @@
      *   entry：更前面的彎   → 提早往外側站，把入彎角度拉開
      */
     const apex = curvatureAt(track, idx, Math.max(3, ahead));
-    const entry = curvatureAt(track, (r.node + ahead * 2) % n, Math.max(4, ahead));
+    const entry = curvatureAt(track, Tracks.idx(track, r.node + ahead * 2), Math.max(4, ahead));
     const inside = c => Math.sign(c) * Math.min(1, Math.abs(c) * 1.6);
     /* 彎有多兇：彎度乘上現在的速度。這個遊戲沒有煞車，帶著全速進窄彎一定會滑出去。
      * 試過「越兇就擺得越外側」，結果四段全部變慢 —— 外側起步反而把滑出去的距離拉更長。
@@ -145,7 +145,7 @@
       if (Math.hypot(rk.x - nd.x, rk.y - nd.y) < rk.r + nd.w + 40) { rockNear = true; break; }
     }
     const straight = !rockNear
-      && Math.abs(curvatureAt(track, (r.node + span) % n, span)) < 0.18
+      && Math.abs(curvatureAt(track, Tracks.idx(track, r.node + span), span)) < 0.18
       && severity < 0.40;
     b.wiggling = straight && b.rng.next() < d.wiggle;
 
@@ -204,7 +204,7 @@
     const track = state.track;
     const n = track.nodes.length;
     const ahead = lookahead(r, 1 - d.lineErr);
-    const nd = track.nodes[(r.node + ahead) % n];
+    const nd = track.nodes[Tracks.idx(track, r.node + ahead)];
 
     /* 目標點＝前方節點沿法線偏移 aim */
     const tx = nd.x + nd.nx * b.aim;

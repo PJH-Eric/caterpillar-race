@@ -35,7 +35,7 @@ for (const def of Tracks.TRACKS) {
     ' ・ 道具葉 ' + tr.items.length +
     ' ・ 一圈 ' + r.finishTime.toFixed(1) + 's');
   ok(def.id + ' 跑得完一圈', r.finished, r.lap + ' 圈');
-  ok(def.id + ' 一圈在合理時間內（8～60 秒）', r.finishTime > 8 && r.finishTime < 60, r.finishTime.toFixed(1));
+  ok(def.id + ' 一圈在合理時間內（8～70 秒）', r.finishTime > 8 && r.finishTime < 70, r.finishTime.toFixed(1));
   ok(def.id + ' 道具葉數量足夠', tr.items.length >= 10, tr.items.length);
   ok(def.id + ' 有加速帶', tr.boosts.length >= 1);
   ok(def.id + ' 圈數設定在 1～5 之間', tr.laps >= 1 && tr.laps <= 5);
@@ -53,7 +53,7 @@ for (let i = 0; i < 120; i++) {
   let onCenter = 0;
   for (const nd of tr.nodes) if (Tracks.surfaceAt(tr, nd.x, nd.y) !== Tracks.SURFACE.GRASS) onCenter++;
   if (onCenter !== tr.nodes.length) badSeeds.push(seed + '(斷線)');
-  if (tr.length < 1600 || tr.length > 6000) badSeeds.push(seed + '(長度 ' + Math.round(tr.length) + ')');
+  if (tr.length < 2000 || tr.length > 7600) badSeeds.push(seed + '(長度 ' + Math.round(tr.length) + ')');
   /* 抽樣實際開開看，每 10 個 seed 跑一次 */
   if (i % 10 === 0) {
     const r = driveOneLap(tr, seed);
@@ -63,7 +63,7 @@ for (let i = 0; i < 120; i++) {
 }
 console.log('    抽樣一圈時間 ' + bestT.toFixed(1) + 's ～ ' + worst.toFixed(1) + 's');
 ok('120 個隨機 seed 都長得出可以跑的賽道', badSeeds.length === 0, badSeeds.slice(0, 6).join(', '));
-ok('隨機賽道一圈不會誇張地長', worst < 70, worst.toFixed(1));
+ok('隨機賽道一圈不會誇張地長', worst < 75, worst.toFixed(1));
 
 /* 版型：不能每一張都是圓環 */
 {
@@ -78,6 +78,52 @@ ok('隨機賽道一圈不會誇張地長', worst < 70, worst.toFixed(1));
   ok('沒有哪一種版型獨佔一半以上',
     Tracks.SHAPES.every(k => (seen[k] || 0) < 100),
     JSON.stringify(seen));
+}
+
+/* 彎道夠不夠多：只有圓環的話，每一局跑起來都一樣 */
+function cornerCount(tr) {
+  const nd = tr.nodes, n = nd.length;
+  let c = 0, inTurn = false;
+  for (let i = 0; i < n; i++) {
+    const a = nd[i], b = nd[(i + 12) % n];
+    let d = Math.atan2(b.ty, b.tx) - Math.atan2(a.ty, a.tx);
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const turning = Math.abs(d) > 0.42;
+    if (turning && !inTurn) c++;
+    inTurn = turning;
+  }
+  return c;
+}
+{
+  let sum = 0, curvy = 0, n = 0;
+  for (let i = 0; i < 80; i++) {
+    const def = Tracks.randomDef('corner-' + i);
+    sum += cornerCount(Tracks.build(def));
+    if (def.shape === 'circuit' || def.shape === 'hairpin') curvy++;
+    n++;
+  }
+  const avg = sum / n;
+  console.log('    隨機賽道平均彎道數 ' + avg.toFixed(1) + '，多彎版型佔 ' + Math.round(curvy / n * 100) + '%');
+  ok('隨機賽道彎道夠多（平均 ≥ 8 個）', avg >= 8, avg.toFixed(1));
+  ok('多彎版型是多數（≥ 55%）', curvy / n >= 0.55, Math.round(curvy / n * 100) + '%');
+}
+
+/* 衝刺賽道：起點到終點，沒有圈數 */
+{
+  const sprints = Tracks.TRACKS.filter(t => t.open);
+  ok('至少有兩張衝刺賽道', sprints.length >= 2, sprints.length);
+  for (const def of sprints) {
+    const tr = Tracks.build(def);
+    ok(def.id + ' 是開放路徑（頭尾不相接）',
+      Math.hypot(tr.nodes[0].x - tr.nodes[tr.nodes.length - 1].x,
+        tr.nodes[0].y - tr.nodes[tr.nodes.length - 1].y) > 600);
+    ok(def.id + ' 圈數設定成 1', def.laps === 1);
+    const r = driveOneLap(tr, 'sp-' + def.id);
+    ok(def.id + ' 從起點跑得到終點', r.finished, r.node + '/' + tr.nodes.length);
+    ok(def.id + ' 全程時間合理（20～70 秒）', r.finishTime > 20 && r.finishTime < 70, r.finishTime.toFixed(1));
+    ok(def.id + ' 起跑格排在路徑開頭', tr.starts.every(s => s.node < tr.nodes.length * 0.1));
+  }
 }
 
 /* 路面要夠寬，而且不能寬到自己貼到自己 */

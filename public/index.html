@@ -173,9 +173,9 @@
     <div class="sum-body" id="sum-body">
       <div class="sum-top">
         <div class="sum-rank"><b id="my-rank">1</b><span id="my-rank-total">/4</span></div>
-        <div class="sum-lap"><b id="my-lap">1</b><span id="my-lap-total">/3</span> 圈</div>
+        <div class="sum-lap"><b id="my-lap">1</b><span id="my-lap-total">/3</span><span id="my-lap-unit"> 圈</span></div>
       </div>
-      <div class="sum-time"><span id="lap-time">0.00</span><small>本圈</small></div>
+      <div class="sum-time"><span id="lap-time">0.00</span><small id="lap-time-label">本圈</small></div>
       <div class="wiggle-gauge" id="wiggle-gauge" aria-label="蠕動槽"></div>
       <div class="sum-item" id="sum-item"></div>
       <ol class="standings" id="standings"></ol>
@@ -213,6 +213,10 @@
     <div class="rr-box">
       <h2 id="rr-title">比賽結束</h2>
       <ol class="result-list compact" id="rr-list"></ol>
+      <section class="panel stats rr-stats" id="rr-stats" hidden>
+        <h3>這局統計</h3>
+        <ul id="rr-stats-list"></ul>
+      </section>
       <div class="rr-buttons">
         <button class="big-btn primary" id="rr-again" type="button">再玩一場</button>
         <button class="big-btn" id="rr-room" type="button">回房間</button>

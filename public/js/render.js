@@ -320,9 +320,10 @@
   }
 
   /** 賽道在某節點彎得多兇（決定要不要畫紅白緣石） */
-  function curveAt(nodes, i, span) {
+  function curveAt(nodes, i, span, open) {
     const n = nodes.length;
-    const a = nodes[((i - span) % n + n) % n], b = nodes[((i + span) % n + n) % n];
+    const wrap = j => (open ? Math.max(0, Math.min(n - 1, j)) : ((j % n) + n) % n);
+    const a = nodes[wrap(i - span)], b = nodes[wrap(i + span)];
     return Math.abs(Math.atan2(a.tx * b.ty - a.ty * b.tx, a.tx * b.tx + a.ty * b.ty));
   }
 
@@ -370,8 +371,10 @@
     idxs.push(AHEAD_NODES);
 
     for (let k = 0; k < idxs.length - 1; k++) {
-      const ia = ((fromNode + idxs[k]) % n + n) % n;
-      const ib = ((fromNode + idxs[k + 1]) % n + n) % n;
+      const wrap = j => (track.open ? Math.max(0, Math.min(n - 1, j)) : ((j % n) + n) % n);
+      const ia = wrap(fromNode + idxs[k]);
+      const ib = wrap(fromNode + idxs[k + 1]);
+      if (ia === ib) continue;                /* 衝刺賽道夾到端點之後會重複，跳過 */
       const A = nodes[ia], B = nodes[ib];
       let fa = P.fwd(A.x, A.y), fb = P.fwd(B.x, B.y);
       if (fa < NEAR && fb < NEAR) continue;
@@ -395,7 +398,7 @@
 
       out.push({
         f: (fa + fb) / 2,
-        draw: makeSegDraw(P, a, b, theme, Math.floor(ia / 5) % 2, curveAt(nodes, ia, 5) > 0.14)
+        draw: makeSegDraw(P, a, b, theme, Math.floor(ia / 5) % 2, curveAt(nodes, ia, 5, track.open) > 0.14)
       });
     }
   }
@@ -474,8 +477,9 @@
       if (it) out.push(it);
     }
 
-    /* 終點線：黑白格，橫跨賽道 */
-    const n0 = track.nodes[0];
+    /* 終點線：黑白格，橫跨賽道。
+     * 環狀賽道的終點就是起點（node 0）；衝刺賽道的終點在最後一個節點。 */
+    const n0 = track.nodes[track.open ? track.nodes.length - 2 : 0];
     const f0 = P.fwd(n0.x, n0.y);
     if (f0 > NEAR && f0 < FAR) {
       out.push({

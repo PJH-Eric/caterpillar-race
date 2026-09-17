@@ -171,8 +171,8 @@
    * 追尾視角下，原本的寬度在畫面上只佔中間細細一條，兩邊都是草地；
    * 參考畫面裡的路是鋪滿整個下半部的。寬度是在這裡一次放大的，
    * 每張賽道的 ctrl 都不用改；石頭會在下面自動往外推，不會被路吞掉。 */
-  const ROAD_WIDE = [1.95, 1.8, 1.65, 1.5, 1.35, 1.24, 1.15, 1.08, 1.0];   /* 想要的加寬倍率，由寬到窄 */
-  const ROAD_MIN_W = 124;   /* 再窄的賽道也不要窄到只剩一條線 */
+  const ROAD_WIDE = [2.2, 2.05, 1.9, 1.75, 1.6, 1.45, 1.3, 1.18, 1.08, 1.0];   /* 想要的加寬倍率，由寬到窄 */
+  const ROAD_MIN_FLOORS = [142, 130, 118, 106, 0];   /* 想要的最小寬度，由寬到窄 */
 
   /**
    * 盡量加寬，但不能寬到自己貼到自己。
@@ -185,21 +185,20 @@
   function fitWiden(nodes) {
     const base = nodes.map(nd => nd.w);
     for (const k of ROAD_WIDE) {
-      /* 先試「套最小寬度」的版本，太擠再退成純倍率的版本，
-       * 這樣很窄的賽道也還是會被加寬一點，不會一路掉回原寬 */
-      for (const useMin of [true, false]) {
-        for (let i = 0; i < nodes.length; i++) {
-          nodes[i].w = useMin ? Math.max(base[i] * k, ROAD_MIN_W) : base[i] * k;
-        }
-        if (!selfOverlaps(nodes)) return k;
+      /* 最小寬度也由寬到窄試一輪：很窄的賽道套不上最寬的那個門檻，
+       * 但套得上次一級的，總比直接掉回原寬好。
+       * 回傳的是「倍率 ＋ 當時用的門檻」，捷徑才能套一樣的規格。 */
+      for (const floor of ROAD_MIN_FLOORS) {
+        for (let i = 0; i < nodes.length; i++) nodes[i].w = Math.max(base[i] * k, floor);
+        if (!selfOverlaps(nodes)) return { k: k, floor: floor };
       }
     }
     for (let i = 0; i < nodes.length; i++) nodes[i].w = base[i];
-    return 1;
+    return { k: 1, floor: 0 };
   }
 
-  function widenBy(nodes, k) {
-    for (const nd of nodes) nd.w = Math.max(nd.w * k, ROAD_MIN_W);
+  function widenBy(nodes, fit) {
+    for (const nd of nodes) nd.w = Math.max(nd.w * fit.k, fit.floor);
     return nodes;
   }
 
@@ -250,16 +249,18 @@
   }
 
   function build(def) {
+    const open = !!def.open;          /* 衝刺賽道：起點到終點，不繞圈 */
     let ctrl = def.ctrl;
-    let nodes = addTangents(sample(ctrl, true), true);
+    let nodes = addTangents(sample(ctrl, !open), !open);
     let wideK = fitWiden(nodes);
     /* 有些賽道（菜園迷宮、夜光蘑菇）自己繞回來的地方本來就很擠，
      * 路面根本加不寬。那就把整張圖等比例放大 —— 形狀一模一樣，
      * 只是彎跟彎之間空出距離，路面才寬得起來。 */
-    if (wideK < 1.35) {
+    const avgW = () => nodes.reduce((a, nd) => a + nd.w, 0) / nodes.length;
+    if (wideK.k < 1.35 || avgW() < 112) {
       const GROW = 1.32;
       ctrl = ctrl.map(p => [p[0] * GROW, p[1] * GROW, p[2]]);
-      nodes = addTangents(sample(ctrl, true), true);
+      nodes = addTangents(sample(ctrl, !open), !open);
       wideK = fitWiden(nodes);
     }
     const scaled = ctrl !== def.ctrl;
@@ -320,19 +321,23 @@
     }
 
     /* 起跑格：終點線前方，依席位排成兩列交錯 */
-    const startNode = def.startNode || 0;
+    const startNode = open ? 0 : (def.startNode || 0);
     const grid0 = nodes[startNode];
     const starts = [];
     for (let s = 0; s < 8; s++) {
       const row = Math.floor(s / 2), col = s % 2;
       const back = -(row * 34 + 24);
       const side = (col === 0 ? -1 : 1) * grid0.w * 0.34;
-      const nd = nodes[((startNode + Math.round(back / NODE_STEP)) % nodes.length + nodes.length) % nodes.length];
+      const rawIdx = startNode + Math.round(back / NODE_STEP);
+      const sIdx = open
+        ? Math.max(0, Math.min(nodes.length - 1, startNode + Math.round((-back) / NODE_STEP)))
+        : ((rawIdx % nodes.length) + nodes.length) % nodes.length;
+      const nd = nodes[sIdx];
       starts.push({
         x: nd.x + nd.nx * side,
         y: nd.y + nd.ny * side,
         angle: Math.atan2(nd.ty, nd.tx),
-        node: ((startNode + Math.round(back / NODE_STEP)) % nodes.length + nodes.length) % nodes.length
+        node: sIdx
       });
     }
 
@@ -351,6 +356,7 @@
       mud: mudList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
       boosts: boostList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
       checkpoints: CHECKPOINTS,
+      open: open,
       length: nodes.length * NODE_STEP
     };
   }
@@ -381,7 +387,9 @@
     const base = (lastIndex >= 0 ? lastIndex : 0);
     let best = base, bestD = Infinity;
     for (let d = -12; d <= 45; d++) {
-      const i = ((base + d) % n + n) % n;
+      const i = track.open
+        ? Math.max(0, Math.min(n - 1, base + d))
+        : ((base + d) % n + n) % n;
       const dx = nodes[i].x - x, dy = nodes[i].y - y;
       const dist = dx * dx + dy * dy;
       if (dist < bestD) { bestD = dist; best = i; }
@@ -390,6 +398,18 @@
   }
 
   /** 節點 index → 檢查點 index */
+  /**
+   * 節點索引的正規化。
+   * 環狀賽道是繞回去，衝刺賽道（open）是夾在兩端 ——
+   * 不夾住的話，快到終點時「往前看 30 個節點」會看到起跑線，
+   * AI 會突然往回轉，畫面也會把起點那一段接在終點後面。
+   */
+  function idx(track, i) {
+    const n = track.nodes.length;
+    if (track.open) return i < 0 ? 0 : (i >= n ? n - 1 : i);
+    return ((i % n) + n) % n;
+  }
+
   function checkpointOf(track, nodeIndex) {
     return Math.floor(nodeIndex / track.nodes.length * CHECKPOINTS) % CHECKPOINTS;
   }
@@ -433,7 +453,7 @@
       rocks: [[-266, -288, 70], [-296, 364, 66], [110, 130, 74], [493, -301, 58]]
     },
     {
-      id: 'branch', name: '大樹枝幹', theme: 'branch', stars: 3, laps: 3,
+      id: 'branch', name: '大樹枝幹', theme: 'branch', stars: 3, laps: 2,
       desc: '在樹枝上跑，路面很窄，掉下去就得在葉子上慢慢爬回來。',
       startNode: 0, itemCount: 10,
       ctrl: [
@@ -538,6 +558,41 @@
       mud: [[-229, -393, 49], [454, -265, 50], [800, 232, 41], [-897, 63, 41]],
       rocks: [[-478, -461, 39], [398, -91, 28], [652, 74, 33], [723, 409, 28], [175, 445, 29], [-324, 159, 31], [-547, 135, 37], [-727, 95, 34], [-344, -177, 32]]
     }
+,
+    {
+      /* 衝刺賽道：open ＝ 起點到終點，沒有圈數。smooth  seed=smooth-0  長度 7532  節點 538  路寬 219  全程 39.6s  葉 17 */
+      id: 'riverrun', name: '溪谷衝刺', theme: 'pond', stars: 2, laps: 1, open: true,
+      desc: '從溪頭衝到溪尾，沒有圈數 —— 一條路跑到底，先到終點的贏。',
+      startNode: 0, itemCount: 14,
+      ctrl: [
+              [-3223, -1156, 93], [-2955, -1291, 88], [-2661, -1351, 95], [-2361, -1343, 111],
+              [-2069, -1411, 95], [-1797, -1284, 87], [-1561, -1099, 96], [-1362, -874, 96],
+              [-1079, -775, 98], [-811, -641, 110], [-571, -461, 111], [-311, -311, 105], [-50, -163, 94],
+              [145, 65, 101], [319, 309, 100], [610, 381, 107], [884, 504, 108], [1174, 426, 97],
+              [1454, 532, 90], [1711, 688, 86], [1992, 791, 93], [2219, 987, 103], [2394, 1231, 110],
+              [2637, 1407, 108], [2937, 1411, 105], [3223, 1321, 97]
+            ],
+      boosts: [[-2205, -1387, 60], [-1345, -864, 57], [1363, 486, 53], [2257, 1035, 50]],
+      mud: [[-381, -427, 52], [341, 370, 51]],
+      rocks: [[-917, -1004, 38], [-684, -133, 29], [238, -309, 35], [349, 644, 25], [1104, 764, 37], [1419, 806, 33], [1901, 1105, 27], [2688, 1099, 27]]
+    },
+    {
+      /* 衝刺賽道：open ＝ 起點到終點，沒有圈數。zig  seed=zig-0  長度 6944  節點 496  路寬 217  全程 40.2s  葉 17 */
+      id: 'dunedash', name: '沙丘飛車', theme: 'beach', stars: 3, laps: 1, open: true,
+      desc: '沙丘之間的單程賽，連續彎一個接一個，走錯一個就追不回來。',
+      startNode: 0, itemCount: 14,
+      ctrl: [
+              [-3259, -336, 89], [-2976, -434, 109], [-2687, -353, 99], [-2388, -380, 87],
+              [-2103, -288, 108], [-1822, -182, 92], [-1523, -209, 98], [-1238, -116, 106],
+              [-971, 21, 100], [-748, 221, 96], [-450, 186, 100], [-155, 243, 102], [145, 230, 94],
+              [439, 174, 109], [737, 215, 91], [1037, 214, 98], [1307, 344, 94], [1593, 434, 112],
+              [1861, 300, 95], [2158, 347, 109], [2457, 328, 92], [2726, 195, 87], [3018, 126, 102],
+              [3259, 305, 86]
+            ],
+      boosts: [[-2314, -365, 53], [-1375, -172, 54], [1382, 376, 51]],
+      mud: [[-512, 250, 45], [444, 195, 53], [2312, 361, 50]],
+      rocks: [[-2782, -40, 35], [-1571, 60, 25], [-921, -313, 26], [-666, -88, 26], [-38, -44, 36], [488, 506, 30], [1242, -55, 41], [1515, 113, 33], [2601, -77, 33]]
+    }
   ];
 
   const BY_ID = {};
@@ -559,9 +614,10 @@
    * 五種都是「不自交的閉曲線」—— 計圈、格子索引、捷徑都建立在這個前提上，
    * 真的畫成 8 字會讓同一格對到兩個節點 index，圈數就毀了。
    */
-  const SHAPES = ['blob', 'boxy', 'kidney', 'peanut', 'snake'];
+  const SHAPES = ['circuit', 'circuit', 'circuit', 'hairpin', 'hairpin', 'snake', 'kidney', 'peanut', 'boxy', 'blob'];
   const SHAPE_NAME = {
-    blob: '圓環', boxy: '街道', kidney: '腰果', peanut: '啞鈴', snake: '蛇行'
+    blob: '圓環', boxy: '街道', kidney: '腰果', peanut: '啞鈴', snake: '蛇行',
+    circuit: '多彎賽道', hairpin: '髮夾連發'
   };
 
   /** 超橢圓的半徑：n 越大越方 */
@@ -570,8 +626,92 @@
     return 1 / Math.pow(Math.pow(c / a, n) + Math.pow(s / b, n), 1 / n);
   }
 
+
+  /* ---------- 多彎版型：從矩形長出凹凸，彎道一個接一個 ----------
+   *
+   * 前面那幾種都是「一個大圈」，剪影不同但跑起來都是繞一圈。
+   * 真正的賽車場是：長直線 → 髮夾 → 連續彎 → 再一段直線。
+   * 作法是拿一個矩形，沿著四條邊隨機長出方形的凹（往內）或凸（往外），
+   * 每一個凹凸就是四個直角彎；最後把每個角切成兩點，
+   * Catmull-Rom 一平滑就變成圓潤但確實會轉的彎。
+   *
+   * 凹凸只沿著自己那條邊長，深度也夾住不讓對邊碰到，
+   * 所以出來的一定是不自交的簡單多邊形 —— 這是計圈與格子索引的前提。
+   */
+
+  /** 把多邊形的每個角切成兩個點（倒角），平滑後才會是圓角而不是尖角 */
+  function chamfer(poly, radius) {
+    const n = poly.length, out = [];
+    for (let i = 0; i < n; i++) {
+      const p = poly[i], a = poly[(i - 1 + n) % n], b = poly[(i + 1) % n];
+      const d1 = Math.hypot(p[0] - a[0], p[1] - a[1]) || 1;
+      const d2 = Math.hypot(b[0] - p[0], b[1] - p[1]) || 1;
+      const r1 = Math.min(radius, d1 * 0.42), r2 = Math.min(radius, d2 * 0.42);
+      out.push([p[0] + (a[0] - p[0]) / d1 * r1, p[1] + (a[1] - p[1]) / d1 * r1]);
+      out.push([p[0] + (b[0] - p[0]) / d2 * r2, p[1] + (b[1] - p[1]) / d2 * r2]);
+    }
+    return out;
+  }
+
+  /**
+   * 沿一條邊長出凹凸。
+   * @param from,to 這條邊的兩端（順時針）
+   * @param inward  往內是哪個方向的單位向量
+   * @param maxDepth 最深能凸多少
+   */
+  function bumpySide(from, to, inward, maxDepth, rng) {
+    const len = Math.hypot(to[0] - from[0], to[1] - from[1]);
+    const ux = (to[0] - from[0]) / len, uy = (to[1] - from[1]) / len;
+    const pts = [];
+    const margin = Math.max(90, len * 0.13);      /* 離兩端的角要留距離 */
+    const usable = len - margin * 2;
+    const count = usable < 200 ? 0 : rng.int(1, usable > 520 ? 3 : 2);
+    let cursor = margin;
+    for (let k = 0; k < count; k++) {
+      const left = len - margin - cursor;
+      const slots = count - k;
+      const w = Math.min(left / slots - 50, rng.range(120, 210));
+      if (w < 95) break;
+      const gap = rng.range(40, Math.max(50, left / slots - w));
+      const a = cursor + gap;
+      const bEnd = a + w;
+      if (bEnd > len - margin) break;
+      const dir = rng.chance(0.55) ? 1 : -1;        /* 1＝往內凹，-1＝往外凸 */
+      const depth = rng.range(95, Math.max(120, maxDepth)) * dir;
+      pts.push([from[0] + ux * a, from[1] + uy * a]);
+      pts.push([from[0] + ux * a + inward[0] * depth, from[1] + uy * a + inward[1] * depth]);
+      pts.push([from[0] + ux * bEnd + inward[0] * depth, from[1] + uy * bEnd + inward[1] * depth]);
+      pts.push([from[0] + ux * bEnd, from[1] + uy * bEnd]);
+      cursor = bEnd;
+    }
+    return pts;
+  }
+
+  /** circuit：矩形 ＋ 四條邊的凹凸；hairpin：細長矩形，凹得更深＝髮夾 */
+  function circuitCtrl(shape, rng) {
+    const deep = shape === 'hairpin';
+    /* 注意這是「半邊長」：實際矩形是 2W × 2H */
+    const W = deep ? rng.range(500, 610) : rng.range(450, 560);
+    const H = deep ? rng.range(270, 350) : rng.range(360, 460);
+    const maxD = Math.min(W, H) * (deep ? 0.42 : 0.3);
+    const c = [[-W, -H], [W, -H], [W, H], [-W, H]];      /* 順時針 */
+    const inward = [[0, 1], [-1, 0], [0, -1], [1, 0]];
+    const poly = [];
+    for (let i = 0; i < 4; i++) {
+      poly.push(c[i]);
+      poly.push.apply(poly, bumpySide(c[i], c[(i + 1) % 4], inward[i], maxD, rng));
+    }
+    if (poly.length < 12) return null;                    /* 一個凹凸都沒長就不算多彎 */
+    const rounded = chamfer(poly, deep ? 62 : 78);
+    const rot = rng.range(0, Math.PI * 2);
+    const cos = Math.cos(rot), sin = Math.sin(rot);
+    const w = () => rng.range(78, 104);
+    return rounded.map(p => [p[0] * cos - p[1] * sin, p[0] * sin + p[1] * cos, w()]);
+  }
+
   /** 產生某個版型的控制點（回傳 [[x, y, w], ...]，閉合） */
   function shapeCtrl(shape, rng) {
+    if (shape === 'circuit' || shape === 'hairpin') return circuitCtrl(shape, rng);
     const pts = [];
     const rot = rng.range(0, Math.PI * 2);
     const flip = rng.chance(0.5) ? 1 : -1;
@@ -680,6 +820,7 @@
   /** 一張隨機賽道的候選：算出節點，順便把加速帶、泥巴、石頭擺在對的地方 */
   function tryShape(shape, rng) {
     const ctrl = shapeCtrl(shape, rng);
+    if (!ctrl || ctrl.length < 6) return null;
     const nodes = addTangents(sample(ctrl, true), true);
     if (nodes.length < 130 || nodes.length > 440) return null;
     if (selfOverlaps(nodes)) return null;
@@ -718,18 +859,27 @@
    */
   function randomDef(seed) {
     const rng = RNG.create(seed);
-    const order = SHAPES.slice();
-    /* 洗牌，才不會每次都從 blob 開始試 */
-    for (let i = order.length - 1; i > 0; i--) {
+    /* 大部分的隨機賽道要是「彎很多」的那種 —— 只有圓環系的話，
+     * 每一局跑起來都一樣。四分之三的 seed 先試多彎版型，
+     * 剩下四分之一才讓圓環系優先，保留一點變化。 */
+    const curvy = ['circuit', 'hairpin'];
+    const rest = SHAPES.filter(x => curvy.indexOf(x) < 0);
+    for (let i = rest.length - 1; i > 0; i--) {
       const j = rng.int(0, i);
-      const t = order[i]; order[i] = order[j]; order[j] = t;
+      const t = rest[i]; rest[i] = rest[j]; rest[j] = t;
     }
+    if (rng.chance(0.5)) { const t = curvy[0]; curvy[0] = curvy[1]; curvy[1] = t; }
+    const order = rng.chance(0.75) ? curvy.concat(rest) : rest.concat(curvy);
 
     let got = null, shape = 'blob';
+    const tried = {};
     for (const sh of order) {
-      for (let attempt = 0; attempt < 6 && !got; attempt++) {
+      if (tried[sh]) continue;
+      tried[sh] = 1;
+      const tries = (sh === 'circuit' || sh === 'hairpin') ? 14 : 6;
+      for (let attempt = 0; attempt < tries && !got; attempt++) {
         const cand = tryShape(sh, rng);
-        if (cand && cand.len > 1800 && cand.len < 5400) { got = cand; shape = sh; }
+        if (cand && cand.len > 2400 && cand.len < 7400) { got = cand; shape = sh; }
       }
       if (got) break;
     }
@@ -742,7 +892,10 @@
       id: 'random', name: '隨機賽道', theme: rng.pick(['garden', 'veggie', 'pond', 'candy', 'shroom', 'branch']),
       desc: '每一局都不一樣的賽道（這張是「' + SHAPE_NAME[shape] + '」）。',
       shape: shape,
-      stars: 3, laps: 3, random: true, seed: seed,
+      stars: 3,
+      /* 彎多的賽道一圈本來就久，圈數跟著長度調，全程才不會拖到三分鐘 */
+      laps: got.len > 5600 ? 2 : 3,
+      random: true, seed: seed,
       startNode: 0, itemCount: 12,
       ctrl: got.ctrl, boosts: got.boosts, mud: got.mud, rocks: got.rocks
     };
@@ -763,6 +916,6 @@
   return {
     SURFACE, CELL, NODE_STEP, CHECKPOINTS,
     TRACKS, BY_ID, build, get, list, randomDef, SHAPES, SHAPE_NAME,
-    surfaceAt, nodeAt, checkpointOf, lateralOf, sample, addTangents
+    surfaceAt, nodeAt, checkpointOf, lateralOf, sample, addTangents, idx
   };
 });

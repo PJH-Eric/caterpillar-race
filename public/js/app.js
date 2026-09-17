@@ -398,7 +398,11 @@
     G.hud = { item: undefined, standings: '', rank: -1, lap: -1, note: null, frame: 0 };
     $('chat-dock').hidden = (G.mode !== 'online');
     $('my-rank-total').textContent = '/' + G.state.racers.length;
-    $('my-lap-total').textContent = '/' + G.state.laps;
+    /* 衝刺賽道沒有圈數，圈數欄改成走完多少路 */
+    const sprint = !!(G.track && G.track.open);
+    $('my-lap-total').textContent = sprint ? '%' : ('/' + G.state.laps);
+    $('my-lap-unit').textContent = sprint ? '' : ' 圈';
+    $('lap-time-label').textContent = sprint ? '總時間' : '本圈';
     $('toast-wrap').innerHTML = '';
 
     show('race');
@@ -452,31 +456,63 @@
     else if (G.lite && G.frameMs < 16.5) G.lite = false; /* 回到約 60fps 才升 */
   }
 
+  /* 分頁切走時 requestAnimationFrame 會被瀏覽器停掉，比賽就等於被凍住了 ——
+   * 線上是伺服器在跑，回來會發現自己被丟在後面；單機卻整場停在那裡。
+   * 所以單機改成「以真實時間為準」：切走多久就補跑多久。
+   *
+   *   1. 用 performance.now() 算真實經過的時間，不是 rAF 的時間戳
+   *   2. 補跑有預算（一幀最多 CATCHUP_MAX 秒），剩下的留在 acc 下一幀繼續補，
+   *      免得離開太久時一次跑幾千個 tick 把瀏覽器卡死
+   *   3. 另外掛一個 setInterval：分頁隱藏時 rAF 完全不跑，靠它推進
+   *      （背景 timer 會被限制到一秒一次，但一次補一秒的量，結果一樣）
+   */
+  const CATCHUP_MAX = 2.5;      /* 一次最多補跑幾秒的模擬 */
+  const BACKLOG_MAX = 90;       /* 累積超過這麼久就不補了，當作那一段沒發生 */
+
+  function advance(nowMs) {
+    if (!G.state) return 0;
+    if (!G.lastMs) G.lastMs = nowMs;
+    let dt = (nowMs - G.lastMs) / 1000;
+    G.lastMs = nowMs;
+    if (dt < 0) dt = 0;
+    if (dt > BACKLOG_MAX) dt = BACKLOG_MAX;
+
+    if (G.mode === 'online') {
+      if (root.Online) root.Online.tick(Math.min(dt, 0.25));
+      return dt;
+    }
+    if (G.paused) return dt;
+
+    G.acc += dt;
+    if (G.acc > BACKLOG_MAX) G.acc = BACKLOG_MAX;
+    const budget = Math.ceil(CATCHUP_MAX / Rules.C.TICK);
+    let guard = 0;
+    while (G.acc >= Rules.C.TICK && guard++ < budget) {
+      simTick();
+      G.acc -= Rules.C.TICK;
+    }
+    return dt;
+  }
+
   function frame(ms) {
     G.raf = root.requestAnimationFrame(frame);
     if (!G.state) return;
-    if (!G.lastMs) G.lastMs = ms;
-    let dt = (ms - G.lastMs) / 1000;
-    G.lastMs = ms;
-    G.frameDt = dt;
-    updateQuality(dt);
-    /* 分頁切走再回來會累積一大段時間，夾住免得一次跑幾百個 tick */
-    if (dt > 0.25) dt = 0.25;
-
-    if (G.mode === 'online') {
-      if (root.Online) root.Online.tick(dt);
-    } else if (!G.paused) {
-      G.acc += dt;
-      let guard = 0;
-      while (G.acc >= Rules.C.TICK && guard++ < 8) {
-        simTick();
-        G.acc -= Rules.C.TICK;
-      }
-    }
+    const now = (root.performance && root.performance.now) ? root.performance.now() : Date.now();
+    const dt = advance(now);
+    G.frameDt = Math.min(0.25, dt);
+    updateQuality(G.frameDt);
 
     updateTrails();
     draw();
     updateHud();
+  }
+
+  /** 分頁被藏起來時 rAF 不跑，靠這支把模擬推下去（不畫，只算） */
+  function hiddenTick() {
+    if (!G.state || G.mode === 'online') return;
+    if (!D.hidden) return;
+    const now = (root.performance && root.performance.now) ? root.performance.now() : Date.now();
+    advance(now);
   }
 
   /* 轉向靈敏度：慢一點＝每三個 tick 少吃一次轉向，快一點＝多給一次微調。
@@ -568,7 +604,7 @@
    *   chase  跟毛毛蟲的車頭 —— 比較跟手，但扭的時候畫面會跟著晃
    */
   const CAM_YAW_LERP = { track: 0.16, chase: 0.30 };
-  const CAM_MAX_RATE = 2.2;      /* 每秒最多轉幾弧度，突然的方向變化才不會甩鏡頭 */
+  const CAM_MAX_RATE = 1.7;      /* 每秒最多轉幾弧度，突然的方向變化才不會甩鏡頭 */
   const CAM_POS_LERP = 0.10;     /* 位置的跟隨速度，慢一點才不會被蠕動帶著抖 */
 
   function camView() { return CAM_VIEWS[G.settings.zoomLevel] || CAM_VIEWS[1]; }
@@ -600,9 +636,9 @@
    * 改成看「平滑過的行進方向」：把速度向量做指數平滑再取角度。
    * 平滑的是向量不是角度 —— 扭左跟扭右的橫向分量會自己抵銷掉，
    * 所以直線上算出來就是一條直的，過彎時才真的轉過去。
-   * 時間常數約 0.4 秒，剛好蓋掉一個完整的蠕動週期，又不會讓彎道慢半拍。
+   * 時間常數約 0.55 秒，蓋掉一個完整的蠕動週期還有餘裕，彎道也還跟得上。
    */
-  const CAM_VEL_LERP = 0.045;
+  const CAM_VEL_LERP = 0.030;
 
   function chaseAxis(me, snapTo) {
     const hx = Math.cos(me.angle), hy = Math.sin(me.angle);
@@ -629,7 +665,7 @@
     if (G.settings.camMode === 'chase') return chaseAxis(me, snapTo);
     const nodes = G.track.nodes, n = nodes.length;
     const ahead = Math.round((70 + me.speed * 0.4) / Tracks.NODE_STEP);
-    const nd = nodes[(me.node + ahead) % n];
+    const nd = nodes[Tracks.idx(G.track, me.node + ahead)];
     const a = Math.atan2(nd.ty, nd.tx);
     /* 倒著開或整個跑出賽道時，賽道方向可能跟車頭差很多，
      * 這時候硬轉過去會讓畫面翻半圈，改成聽車頭的。 */
@@ -959,10 +995,9 @@
    *
    * 10 秒收局倒數是「整場的」倒數，不是掛在某個人身上 ——
    * 已經衝線的、還在跑的、觀戰的，看到的是同一個數字。
-   * 剛衝線的人先看兩秒自己的名次，再接回倒數。
+   * 倒數期間一律顯示倒數，名次等這一局真的結束了才報，
+   * 不然自己先衝線的話，名次會把大家都在看的倒數蓋掉。
    */
-  const RANK_HOLD = 2.0;
-
   function drawFinishBanner() {
     const st = G.state, me = myRacer();
     const el = $('finish-banner');
@@ -973,21 +1008,20 @@
     }
 
     const grace = st.graceEnd > 0 && st.phase === 'racing';
-    const justFinished = me.finished && (st.raceT - me.finishTime) < RANK_HOLD;
 
     let key = '', pos = '', sub = '', win = false, urgent = false, beep = false;
-    if (justFinished || (me.finished && !grace)) {
-      key = 'rank' + me.rank;
-      pos = '第 ' + me.rank + ' 名';
-      sub = FINISH_SUB[me.rank] || '完賽';
-      win = me.rank === 1;
-    } else if (grace) {
+    if (grace) {
       const left = Math.max(0, Math.min(Rules.C.FINISH_GRACE, Math.ceil(st.graceEnd - st.raceT)));
       key = 'cd' + left;
       pos = String(left);
       sub = me.finished ? '秒後結束這一局' : '秒內衝過終點線！';
       urgent = left <= 3;
       beep = true;
+    } else if (me.finished) {
+      key = 'rank' + me.rank;
+      pos = '第 ' + me.rank + ' 名';
+      sub = FINISH_SUB[me.rank] || '完賽';
+      win = me.rank === 1;
     } else {
       if (!el.hidden) el.hidden = true;
       G.bannerKey = '';
@@ -1037,9 +1071,14 @@
     const hud = G.hud;
 
     if (hud.rank !== me.rank) { hud.rank = me.rank; $('my-rank').textContent = String(me.rank); }
-    const lapNow = Math.min(st.laps, me.lap + 1);
+    const sprint = !!(G.track && G.track.open);
+    const lapNow = sprint
+      ? Math.min(100, Math.round(me.node / Math.max(1, G.track.nodes.length - 1) * 100))
+      : Math.min(st.laps, me.lap + 1);
     if (hud.lap !== lapNow) { hud.lap = lapNow; $('my-lap').textContent = String(lapNow); }
-    $('lap-time').textContent = (me.started ? Math.max(0, st.raceT - me.lapStart) : 0).toFixed(2);
+    $('lap-time').textContent = (sprint
+      ? Math.max(0, st.raceT)
+      : (me.started ? Math.max(0, st.raceT - me.lapStart) : 0)).toFixed(2);
 
     /* 蠕動槽 */
     const gauge = $('wiggle-gauge');
@@ -1141,7 +1180,7 @@
     $('result-list').innerHTML = html;
 
     const s = me.stats;
-    $('result-stats').innerHTML =
+    const statsHtml =
       '<li>蠕動衝刺<span>' + s.wiggleBoosts + ' 次</span></li>' +
       '<li>吃到加速帶<span>' + s.pads + ' 次</span></li>' +
       '<li>用掉道具<span>' + s.itemsUsed + ' 個（命中 ' + s.itemHits + '）</span></li>' +
@@ -1149,6 +1188,8 @@
       '<li>跑到草地上<span>' + (s.offTrack / 30).toFixed(1) + ' 秒</span></li>' +
       (rec.record ? '<li><span class="record-badge">破紀錄</span><span>' + me.time.toFixed(2) + 's</span></li>' : '') +
       (rec.lapRecord ? '<li><span class="record-badge">最快單圈</span><span>' + me.bestLap.toFixed(2) + 's</span></li>' : '');
+    $('result-stats').innerHTML = statsHtml;
+    $('rr-stats-list').innerHTML = statsHtml;
 
     /* 線上時按鈕講清楚：主要動作是「留在房間」，要離開得自己按 */
     const online = (G.mode === 'online');
@@ -1191,7 +1232,9 @@
     $('rr-again').textContent = online ? '再玩一場' : '再來一局';
     $('rr-room').textContent = online ? '回房間' : '換賽道';
     $('rr-leave').textContent = online ? '離開房間' : '回首頁';
-    $('rr-more').hidden = online;
+    $('rr-more').hidden = false;              /* 統計每個模式都看得到 */
+    $('rr-more').textContent = '看詳細統計';
+    $('rr-stats').hidden = true;
     box.hidden = false;
   }
 
@@ -1300,7 +1343,12 @@
       if (G.mode === 'online' && root.Online) root.Online.leave();
       show('home');
     });
-    $('rr-more').addEventListener('click', () => { hideRaceResult(); show('result'); });
+    /* 詳細統計就地展開，不換畫面 */
+    $('rr-more').addEventListener('click', () => {
+      const st = $('rr-stats');
+      st.hidden = !st.hidden;
+      $('rr-more').textContent = st.hidden ? '看詳細統計' : '收起統計';
+    });
     const moreBtn = $('room-result-more');
     if (moreBtn) moreBtn.addEventListener('click', () => show('result'));
     $('rotate-ok').addEventListener('click', hideRotateTip);
@@ -1308,6 +1356,15 @@
       const body = $('sum-body');
       body.hidden = !body.hidden;
       $('sum-toggle').setAttribute('aria-expanded', String(!body.hidden));
+    });
+
+    /* 分頁隱藏時 rAF 停擺，用 timer 續命；回到前景再補一次，畫面才不會跳 */
+    root.setInterval(hiddenTick, 250);
+    D.addEventListener('visibilitychange', () => {
+      if (!D.hidden && G.state) {
+        const now = (root.performance && root.performance.now) ? root.performance.now() : Date.now();
+        advance(now);
+      }
     });
 
     root.addEventListener('resize', () => { if (D.body.dataset.screen === 'race') resize(); maybeRotateTip(); });
