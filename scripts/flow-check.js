@@ -122,8 +122,9 @@ for (const f of ['public/js/app.js', 'public/js/online.js', 'public/js/net.js'])
 ok('WebSocket 網址由 config 換算，不用字串猜協定', /toWs/.test(config) && /Config\.wsUrl/.test(online));
 
 /* ---------- 8. 線上角色與邀請 ---------- */
-ok('房間有玩家席位與觀戰席', ids.has('seat-list') && ids.has('spec-list'));
-ok('可以在玩家與觀戰之間切換', ids.has('room-switch'));
+ok('房間有玩家席位與圖片賽道選擇', ids.has('seat-list') && ids.has('room-track-grid') && !ids.has('spec-list'));
+ok('房間不提供圈數與賽道下拉選單', !ids.has('room-laps') && !ids.has('room-track'));
+ok('觀戰者仍可加入玩家席位', ids.has('room-switch'));
 ok('有邀請連結按鈕', ids.has('room-invite'));
 ok('邀請連結帶 room 與 token 兩個參數', /room=.*t=/.test(online));
 ok('房主才看得到房間設定', /room-owner-only/.test(html) && /ownerBox\.hidden = !room\.isOwner/.test(online));

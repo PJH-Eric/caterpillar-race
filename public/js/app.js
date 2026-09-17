@@ -212,8 +212,9 @@
       '</svg>';
   }
 
-  function buildTrackGrid() {
-    const grid = $('track-grid');
+  function buildTrackGrid(grid, selected, onSelect) {
+    grid = grid || $('track-grid');
+    selected = selected || G.settings.lastTrack;
     grid.innerHTML = '';
     const randomPreview = Tracks.randomDef('preview');
     const defs = Tracks.TRACKS.concat([Object.assign({}, randomPreview, {
@@ -224,7 +225,8 @@
       b.type = 'button';
       b.className = 'track-card';
       b.setAttribute('role', 'radio');
-      b.setAttribute('aria-checked', String(def.id === G.settings.lastTrack));
+      b.dataset.trackId = def.id;
+      b.setAttribute('aria-checked', String(def.id === selected));
       let stars = '';
       for (let i = 1; i <= 4; i++) stars += root.SvgUI.starIcon(i <= (def.stars || 1));
       b.innerHTML = trackThumb(def) +
@@ -232,6 +234,7 @@
         '<span class="t-meta">' + stars + '<span>' + (def.laps || 3) + ' 圈</span></span>' +
         '<span class="t-desc">' + def.desc + '</span>';
       b.addEventListener('click', () => {
+        if (onSelect) { onSelect(def); return; }
         G.settings.lastTrack = def.id;
         root.Store.save(G.settings);
         for (const n of grid.children) n.setAttribute('aria-checked', 'false');
@@ -1429,7 +1432,7 @@
   /* 給 online.js 用的介面 */
   root.App = {
     G, show, startRace, toast, handleEvents, updateHud, myRacer, endRace,
-    escapeHtml, unlockAudio, noteFlash,
+    escapeHtml, unlockAudio, noteFlash, buildTrackGrid,
     get settings() { return G.settings; }
   };
 

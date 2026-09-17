@@ -73,9 +73,10 @@ async function main() {
   await wait(80);
 
   /* 開房：人數上限故意設 2，讓第三個人被擠到觀戰席 */
-  a.send({ type: 'create', name: '測試房', trackId: 'garden', laps: 1, seats: 2, allowBad: true });
+  a.send({ type: 'create', name: '測試房', trackId: 'garden', seats: 2, allowBad: true });
   ok('房主收到房間', await a.until('room'));
   const roomId = a.room.id;
+  ok('開房不指定圈數時使用賽道預設', a.room.laps === 2);
   ok('房主拿得到邀請 token', !!a.room.invite);
   ok('非房主拿不到 token（要等進房才知道）', true);
 
@@ -90,6 +91,19 @@ async function main() {
   b.send({ type: 'join', roomId, token: a.room.invite });
   ok('正確邀請 token 可以進房', await b.until('room'));
   ok('阿乙是玩家', b.room.youAre === 'player');
+
+  /* 賽道卡片只傳賽道 ID，伺服器套用圈數並同步所有玩家。 */
+  a.clear(); b.clear();
+  a.send({ type: 'setup', trackId: 'riverrun' });
+  await a.until('room'); await b.until('room');
+  ok('切換衝刺賽道同步到另一位玩家', b.room.trackId === 'riverrun' && b.room.laps === 1);
+  a.clear(); b.clear();
+  a.send({ type: 'setup', trackId: 'candy' });
+  await a.until('room'); await b.until('room');
+  ok('切換一般賽道套用預設圈數', a.room.laps === 2 && b.room.trackId === 'candy' && b.room.laps === 2);
+  a.clear(); b.clear();
+  a.send({ type: 'setup', trackId: 'garden', laps: 1 });
+  await a.until('room'); await b.until('room');
 
   /* 第三個人：席位滿了，要自動轉觀戰而且要有提示 */
   cc.clear();

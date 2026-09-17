@@ -156,9 +156,7 @@
 
     $('room-title').textContent = room.name;
     const seats = room.members.filter(m => m.role === 'player').sort((a, b) => a.seat - b.seat);
-    const specs = room.members.filter(m => m.role === 'spectator');
     $('seat-count').textContent = seats.length + '/' + room.seats;
-    $('spec-count').textContent = specs.length + '/20';
 
     /* 席位 */
     let html = '';
@@ -181,11 +179,21 @@
     }
     $('seat-list').innerHTML = html;
 
-    /* 觀戰席 */
-    $('spec-list').innerHTML = specs.length
-      ? specs.map(m => '<div class="seat"><span class="s-name">' + App.escapeHtml(m.name) + '</span>' +
-        '<span class="s-tag">' + (m.connected ? '觀戰中' : '掉線了') + '</span></div>').join('')
-      : '<p class="empty">還沒有人來觀戰</p>';
+    /* 與單機共用圖片賽道卡片，選擇狀態以伺服器回覆為準。 */
+    const grid = $('room-track-grid');
+    if (!grid.children.length) {
+      App.buildTrackGrid(grid, room.trackId, def => {
+        if (!O.room || !O.room.isOwner || O.room.phase === 'racing') return;
+        O.net.send({ type: 'setup', trackId: def.id });
+      });
+    }
+    for (const card of grid.children) {
+      card.setAttribute('aria-checked', String(card.dataset.trackId === room.trackId));
+      card.disabled = !room.isOwner || room.phase === 'racing';
+    }
+    $('room-track-hint').textContent = room.isOwner
+      ? '點選圖片選擇賽道，圈數依賽道設定。'
+      : '由房主選擇賽道，圈數依賽道設定。';
 
     /* 房主設定 */
     const ownerBox = $('room-owner-only');
@@ -196,7 +204,8 @@
     const isPlayer = me && me.role === 'player';
     $('room-ready').hidden = !isPlayer;
     $('room-ready').textContent = (me && me.ready) ? '取消準備' : '我準備好了';
-    $('room-switch').textContent = isPlayer ? '換到觀戰席' : '我要上場';
+    $('room-switch').hidden = !!isPlayer;
+    $('room-switch').disabled = room.phase === 'racing';
 
     const ready = seats.filter(m => m.connected && m.ready).length;
     const need = Math.max(2, seats.filter(m => m.connected).length);
@@ -215,19 +224,11 @@
   }
 
   function fillOwnerControls(room) {
-    const trackSel = $('room-track');
-    if (trackSel.options.length === 0) {
-      const opts = Tracks.list().concat([{ id: 'random', name: '隨機賽道' }]);
-      trackSel.innerHTML = opts.map(t => '<option value="' + t.id + '">' + t.name + '</option>').join('');
-      $('room-laps').innerHTML = [1, 2, 3, 4, 5].map(n => '<option value="' + n + '">' + n + ' 圈</option>').join('');
+    if ($('room-seats').options.length === 0) {
       $('room-seats').innerHTML = [2, 3, 4, 5, 6].map(n => '<option value="' + n + '">' + n + ' 人</option>').join('');
-      trackSel.addEventListener('change', pushSetup);
-      $('room-laps').addEventListener('change', pushSetup);
       $('room-seats').addEventListener('change', pushSetup);
       $('room-bad').addEventListener('change', pushSetup);
     }
-    trackSel.value = room.trackId;
-    $('room-laps').value = String(room.laps);
     $('room-seats').value = String(room.seats);
     $('room-bad').checked = !!room.allowBad;
   }
@@ -235,8 +236,6 @@
   function pushSetup() {
     O.net.send({
       type: 'setup',
-      trackId: $('room-track').value,
-      laps: Number($('room-laps').value),
       seats: Number($('room-seats').value),
       allowBad: $('room-bad').checked
     });
@@ -429,7 +428,7 @@
       O.net.send({
         type: 'create',
         trackId: App.settings.lastTrack === 'random' ? 'random' : App.settings.lastTrack,
-        laps: 3, seats: 4, allowBad: App.settings.allowBad
+        seats: 4, allowBad: App.settings.allowBad
       });
     });
     $('room-ready').addEventListener('click', () => {

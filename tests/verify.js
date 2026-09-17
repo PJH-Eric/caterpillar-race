@@ -64,9 +64,9 @@ for (const def of Tracks.TRACKS) {
   for (const nd of tr.nodes) if (Tracks.surfaceAt(tr, nd.x, nd.y) !== Tracks.SURFACE.GRASS) onTrack++;
   ok(def.id + ' 中心線整條都在跑道上', onTrack === tr.nodes.length, onTrack + '/' + tr.nodes.length);
 
-  const nd0 = tr.nodes[0];
+  /* 連續彎旁可能是另一段跑道，以世界邊界的草地驗證。 */
   ok(def.id + ' 跑道外面是草地',
-    Tracks.surfaceAt(tr, nd0.x + nd0.nx * (nd0.w + 45), nd0.y + nd0.ny * (nd0.w + 45)) === Tracks.SURFACE.GRASS);
+    Tracks.surfaceAt(tr, tr.bounds.minX + 20, tr.bounds.minY + 20) === Tracks.SURFACE.GRASS);
 
   const cps = new Set();
   for (let i = 0; i < tr.nodes.length; i++) cps.add(Tracks.checkpointOf(tr, i));
@@ -187,9 +187,9 @@ group('二、基本物理');
   const st = race();
   run(st, 120);
   const onRoad = st.racers[0].speed;
-  const nd = st.track.nodes[st.racers[0].node];
-  st.racers[0].x = nd.x + nd.nx * (nd.w + 40);
-  st.racers[0].y = nd.y + nd.ny * (nd.w + 40);
+  st.racers[0].x = st.track.bounds.minX + 35;
+  st.racers[0].y = st.track.bounds.minY + 35;
+  st.racers[0].angle = 0;
   run(st, 20);
   ok('丟到草地上真的還在草地上',
     Rules.surfaceFor(st, st.racers[0]) === Tracks.SURFACE.GRASS);

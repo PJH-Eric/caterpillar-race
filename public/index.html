@@ -127,21 +127,20 @@
       <h3>玩家席位 <small id="seat-count"></small></h3>
       <div class="seat-list" id="seat-list"></div>
       <div class="room-owner-only" id="room-owner-only" hidden>
-        <label class="field inline"><span>賽道</span><select id="room-track"></select></label>
-        <label class="field inline"><span>圈數</span><select id="room-laps"></select></label>
         <label class="field inline"><span>人數上限</span><select id="room-seats"></select></label>
         <label class="field check"><input type="checkbox" id="room-bad"><span>開放負面道具</span></label>
       </div>
       <div class="room-buttons">
+        <button class="big-btn ghost" id="room-switch" type="button" hidden>我要上場</button>
         <button class="big-btn primary" id="room-ready" type="button">我準備好了</button>
         <button class="big-btn" id="room-invite" type="button">複製邀請連結</button>
       </div>
       <p class="hint" id="room-hint"></p>
     </section>
     <section class="panel">
-      <h3>觀戰席 <small id="spec-count"></small></h3>
-      <div class="spec-list" id="spec-list"></div>
-      <button class="big-btn ghost" id="room-switch" type="button">換到觀戰席</button>
+      <h3>選擇賽道</h3>
+      <p class="hint" id="room-track-hint"></p>
+      <div class="track-grid" id="room-track-grid" role="radiogroup" aria-label="賽道"></div>
     </section>
     <!-- 上一局的成績：留在房間裡看，不用跳出去 -->
     <section class="panel room-result" id="room-result" hidden>
