@@ -137,14 +137,19 @@ group('二、基本物理');
     shortTurn.toFixed(3) + ' vs ' + longTurn.toFixed(3));
 }
 {
-  /* 草地比跑道慢 */
+  /* 草地比跑道慢。
+   * 本來是丟到草地上跑 60 個 tick 再量，但沒有人扶方向盤，
+   * 毛毛蟲跑一跑會自己飄回跑道上、速度跟著回滿 —— 量到的是「已經回到路上」。
+   * 改成 20 個 tick（掉速只要零點幾秒就到位），而且先確認人還在草地上。 */
   const st = race();
   run(st, 120);
   const onRoad = st.racers[0].speed;
   const nd = st.track.nodes[st.racers[0].node];
   st.racers[0].x = nd.x + nd.nx * (nd.w + 40);
   st.racers[0].y = nd.y + nd.ny * (nd.w + 40);
-  run(st, 60);
+  run(st, 20);
+  ok('丟到草地上真的還在草地上',
+    Rules.surfaceFor(st, st.racers[0]) === Tracks.SURFACE.GRASS);
   ok('草地上跑比較慢', st.racers[0].speed < onRoad * 0.85,
     Math.round(st.racers[0].speed) + ' vs ' + Math.round(onRoad));
 }
