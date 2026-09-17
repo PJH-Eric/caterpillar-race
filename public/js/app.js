@@ -57,6 +57,7 @@
   function buildSettingsModal() {
     for (const i of D.querySelectorAll('[data-icon]')) i.innerHTML = root.SvgUI.settingIcon(i.dataset.icon);
     $('btn-gear').innerHTML = root.SvgUI.gearIcon();
+    $('btn-pause').innerHTML = root.SvgUI.pauseIcon();
     $('settings-close').innerHTML = root.SvgUI.closeIcon();
 
     const s = G.settings;
@@ -150,6 +151,9 @@
     const lobbyLink = $('lobby-home-link');
     if (lobbyLink) lobbyLink.hidden = (name !== 'home');
     if (name !== 'race') stopLoop();
+    /* 比賽中才出現的暫停鍵。線上按了不能把別人一起停住，所以線上不給。 */
+    const pauseBtn = $('btn-pause');
+    if (pauseBtn) pauseBtn.hidden = !(name === 'race' && G.mode !== 'online');
     if (name === 'home' || name === 'setup') G.audio.setTheme(G.settings.lastTrack || 'garden');
   }
 
@@ -332,10 +336,10 @@
   }
 
   const DIFF_HINT = {
-    baby: '幼幼班：電腦跑得慢、不會丟壞道具，你落後太多時還會放慢等你。蠕動衝刺也比較好按出來（三格就衝）。',
+    baby: '幼幼班：電腦跑得慢、不會丟壞道具，你落後太多時還會放慢等你。',
     easy: '簡單：電腦會走賽道，但常常過彎過頭，道具也用得晚。',
     normal: '普通：電腦會走理想線、順路吃加速帶，道具用在該用的時候。',
-    hard: '困難：電腦幾乎不出錯，會抄內線、走捷徑、閃開黏液，長直線一定扭出蠕動衝刺。'
+    hard: '困難：電腦幾乎不出錯，會抄內線、走捷徑、閃開黏液，加速帶一個也不放過。'
   };
   function refreshDiffHint() { $('diff-hint').textContent = DIFF_HINT[G.settings.difficulty] || ''; }
 
@@ -372,11 +376,11 @@
       '直線就是直的，彎道才跟著轉。覺得會暈的話，設定裡可以把「鏡頭遠近」調遠一點，' +
       '或是把「鏡頭跟隨」換成「跟賽道方向」。</p></section>' +
 
-      '<section class="panel"><h3>蠕動衝刺是這個遊戲的關鍵</h3>' +
-      '<p>真的毛毛蟲是靠身體左右波動前進的，這裡也一樣。左右<b>交替</b>按，而且每次換邊的間隔抓在<b>大約半秒</b>，' +
-      '資訊欄的蠕動槽就會一格一格亮起來。亮滿四格，毛毛蟲會自動衝刺 1.2 秒，速度多 45%。</p>' +
-      '<p>亂按沒有用 —— 換邊太快（不到 0.12 秒）會直接歸零，太慢（超過 0.55 秒）也會洩氣。</p>' +
-      '<p>扭身體會讓你偏離走線，所以長直線盡量扭，快進彎時要收手。這就是這個遊戲的取捨。</p></section>' +
+      '<section class="panel"><h3>快的關鍵是走線</h3>' +
+      '<p>按住前進就是全速，沒有什麼隱藏的加速技巧 —— 差距是在<b>走線</b>拉開的。</p>' +
+      '<p>進彎前先往外靠，切過彎心，出彎再放開，這樣走的路最短、被轉向拖慢的時間也最少。' +
+      '轉向的時候速度會稍微降一點，所以不必要的左右修正越少越好。</p>' +
+      '<p>其餘的時間就花在<b>加速帶</b>和<b>道具葉</b>上，順路能撿就撿。</p></section>' +
 
       '<section class="panel"><h3>賽道上有什麼</h3>' +
       '<p><b>土色跑道</b>跑最快。<b>草地</b>還能走，但只剩六成半的速度。<b>深色泥巴</b>更慢，剩四成半。</p>' +
@@ -613,7 +617,6 @@
       if (e.type === 'over') continue;
       if (e.id !== meId) continue;
 
-      if (e.type === 'wiggle') { G.audio.play('wiggle'); buzz(18); }
       else if (e.type === 'pad') { G.audio.play('pad'); }
       else if (e.type === 'pick') { G.audio.play('pick'); }
       else if (e.type === 'wall') { G.audio.play('wall'); buzz(35); }
@@ -664,11 +667,11 @@
     { back: 224, height: 116 }    /* 遠一點：看得到更多前方彎道，轉彎時最不暈 */
   ];
   /* 鏡頭偏航要跟誰：
-   *   track  跟前方賽道的方向（預設）—— 蠕動的左右擺完全不會傳到畫面
+   *   track  跟前方賽道的方向（預設）—— 修方向的左右擺完全不會傳到畫面
    *   chase  跟毛毛蟲的車頭 —— 比較跟手，但扭的時候畫面會跟著晃
    */
   const CAM_YAW_LERP = { track: 0.16, chase: 0.30 };
-  const CAM_POS_LERP = 0.10;     /* 位置的跟隨速度，慢一點才不會被蠕動帶著抖 */
+  const CAM_POS_LERP = 0.10;     /* 位置的跟隨速度，慢一點才不會被身體擺動帶著抖 */
 
   /* 鏡頭轉動的阻尼住在 Render.CAM_YAW / Render.stepCamYaw（放那裡測試才跑得到）。
    * CAM_YAW_LERP 決定「想要的轉速是角差的幾分之幾」，阻尼器再把它限速、平滑。 */
@@ -690,19 +693,19 @@
 
   /**
    * 鏡頭要轉到哪個角度。
-   * track 模式看的是「前方賽道的方向」而不是車頭 —— 賽道方向不會因為蠕動而抖，
+   * track 模式看的是「前方賽道的方向」而不是車頭 —— 賽道方向不會因為身體擺動而抖，
    * 但過彎時還是會順順地轉，而且毛毛蟲本來就大致順著賽道，操作仍然直覺。
    */
   /**
    * chase 模式的鏡頭軸線 ——「跟一般賽車一樣」的關鍵在這裡。
    *
-   * 用瞬時車頭（me.angle）不行：蠕動衝刺就是靠左右交替扭出來的，
-   * 車頭本來就在以大約 2Hz 來回擺，鏡頭跟著它走，直線上畫面就一直左右搖。
+   * 用瞬時車頭（me.angle）不行：毛毛蟲一邊跑一邊左右擺，車頭本身就在抖，
+   * 鏡頭跟著它走，直線上畫面就一直左右搖。
    *
    * 改成看「平滑過的行進方向」：把速度向量做指數平滑再取角度。
    * 平滑的是向量不是角度 —— 扭左跟扭右的橫向分量會自己抵銷掉，
    * 所以直線上算出來就是一條直的，過彎時才真的轉過去。
-   * 時間常數約 0.55 秒，蓋掉一個完整的蠕動週期還有餘裕，彎道也還跟得上。
+   * 時間常數約 0.55 秒，蓋掉一個完整的擺動週期還有餘裕，彎道也還跟得上。
    */
   const CAM_VEL_LERP = 0.030;
   /* 提前量：鏡頭的目標方向裡混多少「前面那段路的方向」。
@@ -793,7 +796,7 @@
     /* 視角寬窄：速度越快越廣，衝刺時再多開一點。
      * fov 是乘在 focal 上的倍率，越小視角越廣，東西從兩側刷過去越快。 */
     const st = G.state;
-    const boosting = st && (st.t < me.wiggle.until || st.t < me.juiceUntil || st.t < me.padUntil);
+    const boosting = st && (st.t < me.juiceUntil || st.t < me.padUntil);
     const fovWant = 1 - Math.min(0.07, me.speed / 4200) - (boosting ? 0.04 : 0);
     G.cam.fov = G.cam.fov + (fovWant - G.cam.fov) * (snapTo ? 1 : 0.08);
     G.boostVis = (G.boostVis || 0) + ((boosting ? 1 : 0) - (G.boostVis || 0)) * 0.12;
@@ -945,7 +948,7 @@
     root.Render.drawWorm3D(ctx, P, ch, pts, {
       t: st.t,
       angle: r.angle,
-      wiggle: st.t < r.wiggle.until,
+      wiggle: st.t < r.padUntil || st.t < r.juiceUntil,
       tiny: st.t < r.tinyUntil,
       shield: st.t < r.shieldUntil,
       hop: st.t < r.hopUntil,
@@ -1169,17 +1172,6 @@
       ? Math.max(0, st.raceT)
       : (me.started ? Math.max(0, st.raceT - me.lapStart) : 0)).toFixed(2);
 
-    /* 蠕動槽 */
-    const gauge = $('wiggle-gauge');
-    const need = (me.kind === 'human' && me.difficulty === 'baby') ? 3 : Rules.C.WIGGLE.NEED;
-    const boosting = st.t < me.wiggle.until;
-    if (gauge.children.length !== need) {
-      gauge.innerHTML = '';
-      for (let i = 0; i < need; i++) gauge.appendChild(D.createElement('i'));
-    }
-    gauge.classList.toggle('boost', boosting);
-    for (let i = 0; i < need; i++) gauge.children[i].classList.toggle('on', boosting || i < me.wiggle.beats);
-
     /* 持有道具。
      * 這一段本來每一幀都重寫 innerHTML（而且裡面還有一整個 SVG）——
      * 一秒六十次重排，實測畫面上的道具名稱會疊出殘影。只在真的換道具時才動 DOM。 */
@@ -1270,7 +1262,6 @@
 
     const s = me.stats;
     const statsHtml =
-      '<li>蠕動衝刺<span>' + s.wiggleBoosts + ' 次</span></li>' +
       '<li>吃到加速帶<span>' + s.pads + ' 次</span></li>' +
       '<li>用掉道具<span>' + s.itemsUsed + ' 個（命中 ' + s.itemHits + '）</span></li>' +
       '<li>撞牆<span>' + s.hits + ' 次</span></li>' +
@@ -1367,6 +1358,8 @@
       show('home');
     });
     $('modal-pause').querySelector('[data-close]').addEventListener('click', () => { G.paused = false; modal.close(); });
+    /* 畫面上的暫停鍵：跟 Esc 同一個入口，手機沒有鍵盤就靠它 */
+    $('btn-pause').addEventListener('click', () => { unlockAudio(); togglePause(); });
   }
 
   function togglePause() {

@@ -109,6 +109,9 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   display: grid; place-items: center;
 }
 .gear svg { width: 26px; height: 26px; fill: currentColor; }
+/* 比賽中的暫停鍵：排在齒輪左邊，跟 Esc 是同一件事（手機沒有鍵盤，一定要有得按） */
+#btn-pause { right: calc(var(--safe-r) + 66px); }
+#btn-pause svg { width: 22px; height: 22px; }
 .gear:active { transform: translateY(3px); box-shadow: inset 0 2px 0 #fff, 0 1px 0 rgba(0,0,0,.14); }
 
 /* 首頁的「← 回遊戲大廳」。
@@ -334,13 +337,6 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .sum-time span { font-size: 1.15em; font-weight: 800; }
 .sum-time small { color: var(--ink-soft); }
 
-.wiggle-gauge { display: flex; gap: 3px; margin: 6px 0; }
-.wiggle-gauge i {
-  flex: 1; height: 8px; border-radius: 4px;
-  background: rgba(0,0,0,.12);
-}
-.wiggle-gauge i.on { background: linear-gradient(90deg, #A9E86B, #6FBB32); }
-.wiggle-gauge.boost i { background: linear-gradient(90deg, #FFD54A, #FF9E3D); animation: pulse .4s infinite alternate; }
 @keyframes pulse { to { opacity: .55; } }
 
 .sum-item { display: flex; align-items: center; gap: 6px; min-height: 34px; font-weight: 700; }
@@ -707,8 +703,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   .summary .standings, .summary .sum-note { grid-column: 1 / -1; }
   /* 直向手機的資訊欄不能吃掉三分之一個畫面，名次表限高就好（完整的在小地圖上） */
   .summary .standings { max-height: 4.8em; overflow: hidden; }
-  .summary .wiggle-gauge { grid-column: 1 / -1; margin: 2px 0; }
-  .minimap { top: calc(var(--safe-t) + 8px); right: calc(var(--safe-r) + 62px); width: 88px; height: 88px; }
+  .summary   .minimap { top: calc(var(--safe-t) + 8px); right: calc(var(--safe-r) + 62px); width: 88px; height: 88px; }
   .chat-dock { width: 150px; bottom: calc(var(--safe-b) + 116px); }
   .chat-log { max-height: 96px; }
   .tbtn { width: 78px; height: 78px; }

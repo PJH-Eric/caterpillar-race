@@ -34,7 +34,7 @@
     SEG_GAP: 9,
 
     /* 速度 */
-    BASE_SPEED: 180,           /* 跑道上的基礎速度（單位／秒） */
+    BASE_SPEED: 200,           /* 跑道上的基礎速度（單位／秒）。按住前進就是這個速度 */
     ACCEL: 450,
     BRAKE: 1050,               /* 目標比現在慢時，掉速比加速快 */
     GAS_UP: 1.0,               /* 鍵盤「上」：按住就是基礎速度，不再額外加成 */
@@ -46,9 +46,7 @@
     TURN_SPEED_FALLOFF: 0.25,  /* 越快越轉不動。0.42 太重，衝刺中根本轉不過彎 */
     TURN_PENALTY: 0.12,        /* 轉向中的速度懲罰上限 */
     /* 轉向慣性：毛毛蟲要花時間才把身體彎過去，不是按下去就瞬間滿舵。
-     * 沒有這一項的話，蠕動衝刺需要的左右交替（0.18～0.55 秒換一次邊）
-     * 每半個循環就會轉掉 40～90 度，扭一下就飛出賽道，機制根本沒辦法用。
-     * 加了之後：快速交替只會畫出小小的 S 形，持續按住才轉得動彎道。 */
+     * 點一下只會畫出小小的 S 形，持續按住才轉得動彎道。 */
     TURN_ACCEL: 8.5,           /* 角加速度（弧度／秒²），約 0.22 秒到滿舵 */
     TURN_RELEASE: 11.0,        /* 放開之後回正比較快，免得鬆手還在飄 */
 
@@ -62,16 +60,6 @@
     PAD_TIME: 1.5,
     PAD_POWER: 0.60,
 
-    /* 蠕動衝刺 */
-    WIGGLE: {
-      MIN: 0.12,               /* 比這更快＝亂按，歸零 */
-      SWEET_LO: 0.18,
-      SWEET_HI: 0.55,
-      NEED: 4,
-      TIME: 1.2,
-      POWER: 0.45
-    },
-
     /* 碰撞 */
     WALL_KEEP: 0.35,           /* 撞牆後速度剩多少 */
     BUMP_KEEP: 0.80,           /* 撞到其他毛毛蟲後速度剩多少 */
@@ -83,12 +71,12 @@
     ITEM_COOLDOWN: 0.35        /* 用完道具到能再撿的間隔，避免同一 tick 連撿 */
   };
 
-  /* 四段難度。差別在速度上限、走線精度、反應延遲與蠕動節奏，不是只改名字。 */
+  /* 四段難度。差別在速度上限、走線精度、反應延遲與閃避意識，不是只改名字。 */
   const DIFFICULTY = {
-    baby:   { id: 'baby',   name: '幼幼班', cap: 0.78, lineErr: 0.55, react: 2.2, wiggle: 0.15, avoid: 0.0,  useBad: false, mercy: true },
-    easy:   { id: 'easy',   name: '簡單',   cap: 0.86, lineErr: 0.34, react: 1.2, wiggle: 0.35, avoid: 0.15, useBad: true,  mercy: false },
-    normal: { id: 'normal', name: '普通',   cap: 0.95, lineErr: 0.16, react: 0.5, wiggle: 0.70, avoid: 0.55, useBad: true,  mercy: false },
-    hard:   { id: 'hard',   name: '困難',   cap: 1.00, lineErr: 0.10, react: 0.15, wiggle: 0.95, avoid: 0.90, useBad: true,  mercy: false }
+    baby:   { id: 'baby',   name: '幼幼班', cap: 0.78, lineErr: 0.55, react: 2.2, avoid: 0.0,  useBad: false, mercy: true },
+    easy:   { id: 'easy',   name: '簡單',   cap: 0.86, lineErr: 0.34, react: 1.2, avoid: 0.15, useBad: true,  mercy: false },
+    normal: { id: 'normal', name: '普通',   cap: 0.95, lineErr: 0.16, react: 0.5, avoid: 0.55, useBad: true,  mercy: false },
+    hard:   { id: 'hard',   name: '困難',   cap: 1.00, lineErr: 0.10, react: 0.15, avoid: 0.90, useBad: true,  mercy: false }
   };
   const DIFFICULTY_LIST = ['baby', 'easy', 'normal', 'hard'];
 
@@ -143,7 +131,6 @@
         finished: false,
         finishTime: 0,
 
-        wiggle: { dir: 0, beats: 0, lastFlip: -9, until: 0 },
         padUntil: 0,
         juiceUntil: 0,
         slowUntil: 0, slowPower: 0,
@@ -159,7 +146,7 @@
         connected: true,
         disconnectedAt: 0,
 
-        stats: { hits: 0, wiggleBoosts: 0, pads: 0, itemsUsed: 0, itemHits: 0, offTrack: 0 }
+        stats: { hits: 0, pads: 0, itemsUsed: 0, itemHits: 0, offTrack: 0 }
       };
     });
 
@@ -205,7 +192,6 @@
     let boost = 0;
     if (state.t < r.juiceUntil) boost += Items.ITEMS.juice.power;
     if (state.t < r.padUntil) boost += C.PAD_POWER;
-    if (state.t < r.wiggle.until) boost += C.WIGGLE.POWER;
     f *= (1 + Math.min(C.MAX_BOOST, boost));
 
     if (state.t < r.slowUntil) f *= (1 - r.slowPower);
@@ -225,40 +211,6 @@
     if (man) return gas > 0 ? f * C.GAS_UP : 0;
     if (gas > 0) f *= C.GAS_UP;
     return f;
-  }
-
-  /* ---------- 蠕動衝刺 ---------- */
-
-  function updateWiggle(state, r, steer) {
-    const w = r.wiggle;
-    const cfg = C.WIGGLE;
-    const d = (r.kind === 'ai' ? DIFFICULTY.normal : DIFFICULTY[r.difficulty]) || DIFFICULTY.normal;
-    /* 幼幼班放寬：門檻低一點、區間寬一點、衝刺久一點 */
-    const baby = r.kind === 'human' && r.difficulty === 'baby';
-    const need = baby ? 3 : cfg.NEED;
-    const lo = baby ? 0.15 : cfg.SWEET_LO;
-    const hi = baby ? 0.75 : cfg.SWEET_HI;
-    const time = baby ? 1.6 : cfg.TIME;
-
-    if (steer === 0 || steer === w.dir) {
-      /* 太久沒換向就洩氣 */
-      if (w.beats > 0 && state.t - w.lastFlip > hi) w.beats = 0;
-      return;
-    }
-    const gap = state.t - w.lastFlip;
-    w.dir = steer;
-    w.lastFlip = state.t;
-
-    if (gap < cfg.MIN) { w.beats = 0; return; }          /* 亂按，歸零 */
-    if (gap < lo || gap > hi) { w.beats = 1; return; }   /* 節奏沒抓到，從頭算 */
-
-    w.beats++;
-    if (w.beats >= need) {
-      w.beats = 0;
-      w.until = state.t + time;
-      r.stats.wiggleBoosts++;
-      state.events.push({ type: 'wiggle', id: r.id });
-    }
   }
 
   /* ---------- 道具 ---------- */
@@ -537,7 +489,6 @@
 
       if (input.use && r.item && state.t >= 0) useItem(state, r);
 
-      updateWiggle(state, r, steer);
 
       /* 轉向：越快越轉不動，而且角速度有慣性 */
       const ratio = clamp(r.speed / C.BASE_SPEED, 0, 1.6);
@@ -658,8 +609,7 @@
       racers: state.racers.map(r => ({
         id: r.id, x: +r.x.toFixed(2), y: +r.y.toFixed(2), a: +r.angle.toFixed(3),
         sp: +r.speed.toFixed(1), tv: +r.turnVel.toFixed(3), lap: r.lap, cp: r.cp, rank: r.rank,
-        item: r.item, beats: r.wiggle.beats,
-        wig: r.wiggle.until > state.t ? 1 : 0,
+        item: r.item,
         boost: (r.juiceUntil > state.t || r.padUntil > state.t) ? 1 : 0,
         slow: r.slowUntil > state.t ? 1 : 0,
         shield: r.shieldUntil > state.t ? 1 : 0,

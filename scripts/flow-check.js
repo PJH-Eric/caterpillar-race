@@ -81,8 +81,19 @@ for (const id of ['set-vibrate', 'set-sens', 'set-cam', 'set-zoom', 'set-motion'
 
 /* ---------- 4. 對戰畫面的資訊配置：Summary 與聊天都在左側 ---------- */
 ok('有操作 Summary', ids.has('summary'));
-ok('Summary 顯示名次、圈數、本圈時間、道具、蠕動槽',
-  ['my-rank', 'my-lap', 'lap-time', 'sum-item', 'wiggle-gauge', 'standings'].every(id => ids.has(id)));
+ok('Summary 顯示名次、圈數、本圈時間、道具、名次表',
+  ['my-rank', 'my-lap', 'lap-time', 'sum-item', 'standings'].every(id => ids.has(id)));
+ok('蠕動衝刺已經完全移除', !/wiggle-gauge/.test(html) && !/蠕動/.test(html) &&
+  !/WIGGLE/.test(read('public/js/rules.js')) && !/wiggle-gauge/.test(css));
+
+/* 手機沒有鍵盤，Esc 能做的事一定要有按鈕按得到 */
+ok('比賽中有畫面上的暫停鍵', ids.has('btn-pause') && /btn-pause.*togglePause|togglePause/.test(app));
+ok('暫停鍵跟 Esc 走同一個入口',
+  /\$\('btn-pause'\)\.addEventListener\('click'[\s\S]{0,120}togglePause\(\)/.test(app) &&
+  /onPause/.test(app));
+ok('暫停鍵只在比賽中、而且只在單機出現',
+  /pauseBtn\.hidden = !\(name === 'race' && G\.mode !== 'online'\)/.test(app));
+ok('暫停鍵不會壓到齒輪', /#btn-pause \{[^}]*right:/.test(css));
 ok('Summary 靠左', /\.summary\s*\{[^}]*left:/.test(css));
 ok('聊天室在左下', /\.chat-dock\s*\{[^}]*left:[^}]*bottom:/.test(css));
 ok('房間聊天室有獨立區塊', ids.has('room-chat-log') && /class="panel room-chat"/.test(html));

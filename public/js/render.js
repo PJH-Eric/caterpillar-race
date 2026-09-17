@@ -1,9 +1,8 @@
 /* ===== render.js — 真透視的追尾視角渲染器 =====
  *
- * 為什麼不是俯視了：俯視加上「鏡頭跟著車頭轉」會暈 ——
- * 蠕動衝刺本來就要求玩家每 0.26 秒換一次邊，車頭因此以每秒兩次的頻率左右擺，
- * 整個世界跟著抖。改成追尾視角之後地平線永遠水平，毛毛蟲在畫面前方扭來扭去，
- * 世界卻是穩的；順便也真的變成立體畫面。
+ * 為什麼不是俯視了：俯視加上「鏡頭跟著車頭轉」會暈 —— 毛毛蟲一邊跑一邊左右擺，
+ * 車頭本來就在抖，整個世界跟著抖。改成追尾視角之後地平線永遠水平，
+ * 毛毛蟲在畫面前方扭來扭去，世界卻是穩的；順便也真的變成立體畫面。
  *
  * 投影：地面是 z = 0 的平面，鏡頭在毛毛蟲後上方。
  *   f = 前方距離、r = 右方距離、z = 離地高度
@@ -1096,7 +1095,7 @@
   /**
    * 畫一隻立體毛毛蟲。
    * @param {Array} pts 身體各節的「地面世界座標」（[0] 是頭）
-   * @param {object} o  { t, angle, wiggle, tiny, ghost, shield, hop, slow, reduceMotion, isMe }
+   * @param {object} o  { t, angle, wiggle（加速中）, tiny, ghost, shield, hop, slow, reduceMotion, isMe }
    */
   function drawWorm3D(ctx, P, ch, pts, o) {
     const scale = o.tiny ? 0.72 : 1;

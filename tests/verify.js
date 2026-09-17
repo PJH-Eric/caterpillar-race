@@ -222,65 +222,52 @@ group('二、基本物理');
 }
 
 /* ================================================================ */
-group('三、蠕動衝刺');
+group('三、油門與速度');
 
 {
   const st = race();
   run(st, 100);
   const r = st.racers[0];
-  /* 甜蜜區間內左右交替：每 9 個 tick（0.3 秒）換一次邊 */
-  let dir = 1, n = 0;
-  for (let i = 0; i < 9 * 5; i++) {
-    if (i % 9 === 0) dir = -dir;
-    Rules.step(st, { a: { steer: dir, use: false } });
-    if (st.events.some(e => e.type === 'wiggle')) n++;
-  }
-  ok('照節奏左右交替會觸發蠕動衝刺', n >= 1, '觸發 ' + n + ' 次');
+  /* 按住前進就是基礎速度，沒有任何隱藏加成 */
+  for (let i = 0; i < 90; i++) Rules.step(st, { a: { steer: 0, gas: 1, man: 1, use: false } });
+  ok('按住前進會加速到基礎速度', Math.abs(r.speed - Rules.C.BASE_SPEED) < 3, r.speed.toFixed(1));
 }
 {
   const st = race();
   run(st, 100);
-  /* 亂按：每個 tick 都換邊（0.033 秒），應該永遠不會觸發 */
-  let dir = 1, n = 0;
-  for (let i = 0; i < 120; i++) {
-    dir = -dir;
-    Rules.step(st, { a: { steer: dir, use: false } });
-    if (st.events.some(e => e.type === 'wiggle')) n++;
+  const r = st.racers[0];
+  /* 左右交替按只會轉向，不會多出速度 —— 蠕動衝刺已經移除 */
+  let dir = 1, peak = 0;
+  for (let i = 0; i < 9 * 8; i++) {
+    if (i % 9 === 0) dir = -dir;
+    Rules.step(st, { a: { steer: dir, gas: 1, man: 1, use: false } });
+    peak = Math.max(peak, r.speed);
   }
-  ok('亂按不會觸發蠕動衝刺', n === 0, '觸發 ' + n + ' 次');
-  ok('亂按時蠕動槽是空的', st.racers[0].wiggle.beats === 0, st.racers[0].wiggle.beats);
+  ok('左右交替按不會扭出額外速度', peak <= Rules.C.BASE_SPEED + 1, peak.toFixed(1));
+  ok('沒有 wiggle 事件了', !st.events.some(e => e.type === 'wiggle'));
 }
 {
   const st = race();
   run(st, 100);
-  /* 太慢：每 30 個 tick（1 秒）換一次邊，超過 0.55 秒的上限 */
-  let dir = 1, n = 0;
-  for (let i = 0; i < 30 * 6; i++) {
-    if (i % 30 === 0) dir = -dir;
-    Rules.step(st, { a: { steer: dir, use: false } });
-    if (st.events.some(e => e.type === 'wiggle')) n++;
-  }
-  ok('換邊太慢不會觸發蠕動衝刺', n === 0, '觸發 ' + n + ' 次');
-}
-{
-  /* 幼幼班門檻比較低：三格就衝 */
-  const st = race({ racers: [{ id: 'a', kind: 'human', difficulty: 'baby' }] });
-  run(st, 100);
-  let dir = 1, n = 0;
-  for (let i = 0; i < 9 * 4; i++) {
-    if (i % 9 === 0) dir = -dir;
-    Rules.step(st, { a: { steer: dir, use: false } });
-    if (st.events.some(e => e.type === 'wiggle')) n++;
-  }
-  ok('幼幼班三格就衝刺', n >= 1, '觸發 ' + n + ' 次');
+  const straight = Rules.speedFactor(st, st.racers[0], Tracks.SURFACE.TRACK, 0);
+  const turning = Rules.speedFactor(st, st.racers[0], Tracks.SURFACE.TRACK, 1);
+  ok('轉向中會稍微慢一點', turning < straight, (turning / straight).toFixed(3));
 }
 {
   const st = race();
   run(st, 100);
   const base = Rules.speedFactor(st, st.racers[0], Tracks.SURFACE.TRACK, 0);
-  st.racers[0].wiggle.until = st.t + 1;
+  st.racers[0].padUntil = st.t + 1;
   const boosted = Rules.speedFactor(st, st.racers[0], Tracks.SURFACE.TRACK, 0);
-  ok('蠕動衝刺加速 45%', Math.abs(boosted / base - 1.45) < 0.001, (boosted / base).toFixed(3));
+  ok('加速帶加速 60%', Math.abs(boosted / base - 1.6) < 0.001, (boosted / base).toFixed(3));
+}
+{
+  /* 統計欄位換掉之後，結算頁抓的欄位要都還在 */
+  const st = race();
+  const s2 = st.racers[0].stats;
+  ok('統計不再有蠕動衝刺次數', s2.wiggleBoosts === undefined);
+  ok('統計仍有加速帶、道具、撞牆、出界', ['pads', 'itemsUsed', 'itemHits', 'hits', 'offTrack']
+    .every(k => typeof s2[k] === 'number'));
 }
 
 /* ================================================================ */
@@ -412,7 +399,7 @@ group('六、勝負與結算');
   ok('第一名的完成時間最短',
     res[0].time <= res[1].time && res[1].time <= res[2].time,
     res.map(r => r.time).join(' / '));
-  ok('結算有統計數字', typeof res[0].stats.wiggleBoosts === 'number');
+  ok('結算有統計數字', typeof res[0].stats.pads === 'number' && typeof res[0].stats.hits === 'number');
 }
 {
   /* 幽靈不參與碰撞也不會動，而且排名排在後面 */

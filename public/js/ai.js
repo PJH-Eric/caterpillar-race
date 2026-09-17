@@ -1,7 +1,7 @@
 /* ===== ai.js — 四段電腦對手 =====
  *
  * 電腦跟真人跑同一套 rules.js，差別只在「看得多準」與「決定多快」：
- *   走線精度 lineErr、反應延遲 react、蠕動節奏 wiggle、閃避意識 avoid、速度上限 cap。
+ *   走線精度 lineErr、反應延遲 react、閃避意識 avoid、速度上限 cap。
  * 只改名字不改行為的 AI 不算數，scripts/ai-check.js 會量四段的差異。
  *
  * 亂數用「每個 AI 自己的 rng」，不共用 state.rng ——
@@ -43,9 +43,6 @@
         nextThink: 0,
         steer: 0,
         aim: 0,            /* 想要的橫向偏移 */
-        wiggleDir: 1,
-        wiggleNext: 0,
-        wiggling: false,
         useAt: 0
       };
     }
@@ -132,23 +129,6 @@
     /* 決定道具 */
     b.wantUse = decideItem(state, r, d, b);
 
-    /* 要不要開始蠕動衝刺：要看「前方一整段」都夠直才扭。
-     * 只看腳下那一小段的話，衝刺會剛好在入彎時生效，直接把自己送去草地。 */
-    /* 「前面夠直嗎」要用固定的檢查長度。
-     * 看得遠的參數調大之後，ahead 可以到 19 個節點，乘二就是 530 個世界單位，
-     * 這麼長一段幾乎沒有賽道是直的 —— 結果四段 AI 的蠕動衝刺全變成 0。 */
-    const span = Math.min(ahead, 14);
-    /* 附近有石頭就不扭。扭動會讓車頭左右各偏幾度，
-     * 貼著石頭扭一下就是一次撞牆 —— 困難的 AI 原本因此多撞了二十幾次。 */
-    let rockNear = false;
-    for (const rk of track.rocks) {
-      if (Math.hypot(rk.x - nd.x, rk.y - nd.y) < rk.r + nd.w + 40) { rockNear = true; break; }
-    }
-    const straight = !rockNear
-      && Math.abs(curvatureAt(track, Tracks.idx(track, r.node + span), span)) < 0.18
-      && severity < 0.40;
-    b.wiggling = straight && b.rng.next() < d.wiggle;
-
     b.nextThink = state.t + d.react * (0.6 + b.rng.next() * 0.8);
   }
 
@@ -219,25 +199,6 @@
     const DEAD = 0.045;
     const err = want - r.turnVel * TUNE.damp;
     let steer = err > DEAD ? 1 : (err < -DEAD ? -1 : 0);
-
-    /* 蠕動衝刺：進入扭動狀態後就「整段」照節奏交替，不讓每個 tick 的方向修正插隊。
-     *
-     * 第一版寫成「steer 等於 0 時才扭」，扭一下之後方向誤差立刻變大，
-     * 下一個 tick 又被修正搶回去 —— 換向間隔變成一個 tick（0.033 秒），
-     * 落在「亂按」區間，蠕動槽永遠歸零，四段 AI 的衝刺次數全是 0。
-     * 現在只要方向誤差還在容忍範圍內就維持節奏，超過才放棄這次扭動。 */
-    const WIG_KEEP = 0.38;
-    if (b.wiggling && !r.finished && Math.abs(want) < WIG_KEEP) {
-      if (state.t >= b.wiggleNext) {
-        b.wiggleDir = -b.wiggleDir;
-        /* 技術越好，節奏越靠近甜蜜區間中央 */
-        const jitter = (1 - d.wiggle) * 0.30;
-        b.wiggleNext = state.t + 0.26 + (b.rng.next() * 2 - 1) * jitter;
-      }
-      steer = b.wiggleDir;
-    } else {
-      b.wiggleNext = 0;
-    }
 
     /* 幼幼班的體貼：玩家落後太多就放慢等人（規劃書 §5）。
      * 用 capScale 直接縮速度上限，不用「刻意走草地」那種會讓毛毛蟲原地打轉的髒招。 */

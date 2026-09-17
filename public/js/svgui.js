@@ -7,6 +7,10 @@
   function gearIcon() {
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 0 0 12 8.5Zm8.4 3.5a8.4 8.4 0 0 0-.1-1.2l2-1.5-2-3.4-2.3.9a8.2 8.2 0 0 0-2-1.2L15.6 3h-3.9l-.4 2.6a8.2 8.2 0 0 0-2 1.2l-2.3-.9-2 3.4 2 1.5a8.4 8.4 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-.9a8.2 8.2 0 0 0 2 1.2l.4 2.6h3.9l.4-2.6a8.2 8.2 0 0 0 2-1.2l2.3.9 2-3.4-2-1.5c.06-.4.1-.8.1-1.2Z"/></svg>';
   }
+  /** 暫停：兩條直條。比賽中那顆按鈕用的 */
+  function pauseIcon() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5" width="3.6" height="14" rx="1.4"/><rect x="13.4" y="5" width="3.6" height="14" rx="1.4"/></svg>';
+  }
   function closeIcon() {
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>';
   }
@@ -104,5 +108,5 @@
     return { open, close, get isOpen() { return !el.hidden; } };
   }
 
-  root.SvgUI = { gearIcon, closeIcon, arrowIcon, flagIcon, starIcon, settingIcon, itemIcon, modal };
+  root.SvgUI = { gearIcon, pauseIcon, closeIcon, arrowIcon, flagIcon, starIcon, settingIcon, itemIcon, modal };
 })(typeof self !== 'undefined' ? self : this);

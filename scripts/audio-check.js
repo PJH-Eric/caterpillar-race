@@ -27,12 +27,12 @@ ok('各主題的樂器音色不完全一樣',
 const a = Audio2.create();
 ok('沒有 Web Audio 時 unlock 不會爆炸', a.unlock() === false);
 a.apply({ bgm: false, sfx: true, sfxVol: 0.5 });
-a.play('wiggle'); a.play('不存在的音效'); a.startBgm('garden'); a.stopBgm();
+a.play('pad'); a.play('不存在的音效'); a.startBgm('garden'); a.stopBgm();
 ok('沒有 Web Audio 時播放不會爆炸', true);
 ok('設定存得進去', a.settings.bgm === false && a.settings.sfxVol === 0.5);
 
 /* 遊戲裡會用到的音效都要存在 */
-const NEEDED = ['wiggle', 'pad', 'pick', 'wall', 'bump', 'goo', 'blocked', 'hit', 'lap', 'count', 'go', 'finish', 'tap'];
+const NEEDED = ['pad', 'pick', 'wall', 'bump', 'goo', 'blocked', 'hit', 'lap', 'count', 'go', 'finish', 'tap'];
 const missing = NEEDED.filter(n => !a.SFX_NAMES.includes(n));
 ok('遊戲會用到的音效都有做', missing.length === 0, missing.join(','));
 

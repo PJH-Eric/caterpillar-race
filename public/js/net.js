@@ -164,8 +164,6 @@
         r.lap = sr.lap; r.cp = sr.cp; r.rank = sr.rank;
         r.item = sr.item;
         r.started = sr.lap > 0 || sr.cp > 0 || sr.fin === 1 ? true : r.started;
-        r.wiggle.beats = sr.beats;
-        r.wiggle.until = sr.wig ? state.t + 0.2 : 0;
         r.juiceUntil = sr.boost ? state.t + 0.2 : 0;
         r.padUntil = 0;
         r.slowUntil = sr.slow ? state.t + 0.2 : 0;

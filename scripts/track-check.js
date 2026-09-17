@@ -174,13 +174,12 @@ function selfOverlap(tr) {
 }
 
 /* ---------- 彎道不能比毛毛蟲轉得過去的還急 ----------
- * 蠕動衝刺一發動大概是 260 的速度；那個速度的迴轉半徑算出來當門檻。
- * 賽道有一成以上的地方比這還彎的話，玩家一衝刺就會撞出去，
- *「有點難控制」就是從這裡來的。
+ * 踩到加速帶大概是基礎速度的 1.3 倍；那個速度的迴轉半徑算出來當門檻。
+ * 賽道有一成以上的地方比這還彎的話，全速進彎就會撞出去。
  */
 {
   const C = Rules.C;
-  const BOOST_SPEED = 260;
+  const BOOST_SPEED = C.BASE_SPEED * 1.3;
   const turn = C.TURN * (1 - C.TURN_SPEED_FALLOFF * Math.min(1, BOOST_SPEED / C.BASE_SPEED));
   const minR = BOOST_SPEED / turn;
 
@@ -209,7 +208,7 @@ function selfOverlap(tr) {
   ok('衝刺速度下轉得過去的彎（比 ' + minR.toFixed(0) + ' 還急的路段 ≤ 10%）',
     bad.length === 0, bad.slice(0, 6).join(', '));
 
-  /* 真人不是每一幀都在修方向。模擬「反應慢 0.25 秒、而且全程都在衝刺」的玩家，
+  /* 真人不是每一幀都在修方向。模擬「反應慢 0.25 秒、而且油門全程按到底」的玩家，
    * 這樣還會被甩到草地上的話，賽道就是太難控制了。 */
   const wild = [];
   for (const def of Tracks.TRACKS) {
@@ -219,7 +218,7 @@ function selfOverlap(tr) {
     let n = 0, grass = 0, held = { steer: 0, gas: 1, man: 0, use: false };
     while (st.phase !== 'finished' && n < 30 * 300) {
       const r = st.racers[0];
-      r.wiggle.until = st.t + 5;                  /* 衝刺一直開著 */
+      r.padUntil = st.t + 5;                      /* 加速帶效果一直開著，等於全程最快 */
       if (n % 8 === 0) {                          /* 每 0.25 秒才改一次方向 */
         r.kind = 'ai'; r.difficulty = 'hard';
         const i = AI.input(st, r);

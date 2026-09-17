@@ -23,24 +23,32 @@ function solo(trackId, diff) {
     track: track, laps: LAPS, seed: 'ai-' + trackId,
     racers: [{ id: 'x', name: '電腦', kind: 'ai', difficulty: diff }]
   });
-  let n = 0;
-  while (st.phase !== 'finished' && n < 30 * 180) { Rules.step(st, AI.inputsFor(st)); n++; }
-  return st.racers[0];
+  let n = 0, dist = 0;
+  const r = st.racers[0];
+  let px = r.x, py = r.y;
+  while (st.phase !== 'finished' && n < 30 * 180) {
+    Rules.step(st, AI.inputsFor(st));
+    dist += Math.hypot(r.x - px, r.y - py); px = r.x; py = r.y;
+    n++;
+  }
+  /* 走線品質：實際跑的距離除以賽道長度。抄內線的會小於 1，繞遠路的會大於 1 */
+  r.detour = dist / (track.length * LAPS);
+  return r;
 }
 
 console.log('四段電腦對手（每張賽道 ' + LAPS + ' 圈，' + TRACKS.length + ' 張）\n');
 
 const rows = {};
 for (const diff of Rules.DIFFICULTY_LIST) {
-  const acc = { time: 0, off: 0, hits: 0, wig: 0, pads: 0, items: 0, done: 0, per: {} };
+  const acc = { time: 0, off: 0, hits: 0, pads: 0, items: 0, done: 0, detour: 0, per: {} };
   for (const tid of TRACKS) {
     const r = solo(tid, diff);
     if (r.finished) acc.done++;
     acc.time += r.finishTime;
     acc.off += r.stats.offTrack;
     acc.hits += r.stats.hits;
-    acc.wig += r.stats.wiggleBoosts;
     acc.pads += r.stats.pads;
+    acc.detour += r.detour;
     acc.items += r.stats.itemsUsed;
     acc.per[tid] = +r.finishTime.toFixed(1);
   }
@@ -50,7 +58,8 @@ for (const diff of Rules.DIFFICULTY_LIST) {
     ' ・ 總時間 ' + acc.time.toFixed(1) + 's' +
     ' ・ 撞牆 ' + acc.hits +
     ' ・ 跑到草地 ' + (acc.off / 30).toFixed(1) + 's' +
-    ' ・ 蠕動衝刺 ' + acc.wig +
+    ' ・ 吃加速帶 ' + acc.pads +
+    ' ・ 走線 ' + (acc.detour / TRACKS.length * 100).toFixed(1) + '%' +
     ' ・ 用道具 ' + acc.items);
 }
 console.log('');
@@ -69,8 +78,9 @@ ok('困難比幼幼班快至少 15%', rows.hard.time < rows.baby.time * 0.85,
 ok('道具用得越來越積極', rows.hard.items > rows.baby.items,
   rows.baby.items + ' → ' + rows.hard.items);
 
-ok('蠕動衝刺是高段才有的技術', rows.hard.wig >= rows.baby.wig,
-  rows.baby.wig + ' → ' + rows.hard.wig);
+/* 高段的 AI 會抄內線，實際跑的距離比低段短 —— 這是「走線」真的有差的證據 */
+ok('越高段走線越短', rows.hard.detour < rows.baby.detour,
+  (rows.baby.detour / TRACKS.length * 100).toFixed(1) + '% → ' + (rows.hard.detour / TRACKS.length * 100).toFixed(1) + '%');
 
 ok('沒有哪一段會一直撞牆', order.every(d => rows[d].hits < 40),
   order.map(d => d + ':' + rows[d].hits).join(' '));

@@ -140,7 +140,6 @@
     }
 
     const SFX = {
-      wiggle(t) { sweep(t, 420, 1500, 0.28, 'triangle', 0.22); },        /* 蠕動衝刺：咻 */
       pad(t) { sweep(t, 700, 1900, 0.2, 'sine', 0.18); },                /* 加速帶 */
       pick(t) { sweep(t, 880, 1760, 0.14, 'triangle', 0.2); },           /* 吃道具葉：叮 */
       wall(t) { noise(t, 0.16, 0.3, 220, 0.8); },                        /* 撞牆：噗 */
