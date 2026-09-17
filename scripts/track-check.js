@@ -179,9 +179,9 @@ function selfOverlap(tr) {
  */
 {
   const C = Rules.C;
-  const BOOST_SPEED = C.BASE_SPEED * 1.3;
-  const turn = C.TURN * (1 - C.TURN_SPEED_FALLOFF * Math.min(1, BOOST_SPEED / C.BASE_SPEED));
-  const minR = BOOST_SPEED / turn;
+  const FAST_SPEED = C.BASE_SPEED * 1.3;
+  const turn = C.TURN * (1 - C.TURN_SPEED_FALLOFF * Math.min(1, FAST_SPEED / C.BASE_SPEED));
+  const minR = FAST_SPEED / turn;
 
   /** 每個節點的局部轉彎半徑，由小到大 */
   function radii(tr) {
@@ -205,7 +205,7 @@ function selfOverlap(tr) {
   };
   for (const def of Tracks.TRACKS) check(def.id, Tracks.build(def));
   for (let i = 0; i < 40; i++) check('rnd' + i, Tracks.get('random', 'turn-' + i));
-  ok('衝刺速度下轉得過去的彎（比 ' + minR.toFixed(0) + ' 還急的路段 ≤ 10%）',
+  ok('高速下轉得過去的彎（比 ' + minR.toFixed(0) + ' 還急的路段 ≤ 10%）',
     bad.length === 0, bad.slice(0, 6).join(', '));
 
   /* 真人不是每一幀都在修方向。模擬「反應慢 0.25 秒、而且油門全程按到底」的玩家，
@@ -232,7 +232,7 @@ function selfOverlap(tr) {
     const pct = grass / Math.max(1, n) * 100;
     if (pct > 4) wild.push(def.id + ' ' + pct.toFixed(0) + '%');
   }
-  ok('反應慢半拍的玩家全程衝刺也不會一直被甩到草地（≤ 4%）',
+  ok('反應慢半拍的玩家全程高速也不會一直被甩到草地（≤ 4%）',
     wild.length === 0, wild.slice(0, 6).join(', '));
 }
 

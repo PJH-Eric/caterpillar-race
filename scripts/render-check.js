@@ -107,7 +107,7 @@ ok('渲染端有低效能模式的開關', /lite/.test(render));
 /* ---------- 鏡頭 ---------- */
 const app = read('public/js/app.js');
 ok('鏡頭在毛毛蟲後上方', /CAM_VIEWS/.test(app) && /back:/.test(app) && /height:/.test(app));
-ok('鏡頭偏航預設跟賽道方向（蠕動才不會把畫面帶著晃）', /camTargetAngle/.test(app) && /賽道方向/.test(app));
+ok('鏡頭偏航預設跟賽道方向（修方向時才不會把畫面帶著晃）', /camTargetAngle/.test(app) && /賽道方向/.test(app));
 ok('鏡頭用平滑過的行進方向退到後面', /cam\.h/.test(app));
 ok('鏡頭位置與偏航用同一個軸線（毛毛蟲永遠釘在畫面正中央）',
   /G\.cam\.a = G\.cam\.h/.test(app) && /Math\.cos\(G\.cam\.h\) \* back/.test(app));

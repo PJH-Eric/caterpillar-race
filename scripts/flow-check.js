@@ -46,14 +46,14 @@ ok('設定頁有回首頁', ids.has('setup-back'));
 ok('怎麼玩有回首頁', ids.has('help-back'));
 ok('大廳有回首頁', ids.has('lobby-back'));
 ok('房間有離開房間', ids.has('room-back'));
-ok('結算有再來一局與回首頁', ids.has('again') && ids.has('result-home'));
+ok('結算有再來一局、回房間與回首頁', ids.has('again') && ids.has('result-room') && ids.has('result-home'));
 ok('首頁有回遊戲大廳的連結', ids.has('lobby-home-link') &&
   /<a id="lobby-home-link"[^>]*href="https:\/\/[^"]*game-lobby/.test(html));
 ok('回大廳連結只在首頁出現', /lobbyLink\.hidden = \(name !== 'home'\)/.test(app));
 ok('回大廳連結不會被 display 蓋掉', /\.lobby-home-link\[hidden\]/.test(css));
 ok('比賽中 Esc 開暫停選單', /onPause/.test(app) && ids.has('modal-pause'));
-ok('暫停選單只有繼續／重新開始／回首頁三顆',
-  ids.has('pause-resume') && ids.has('pause-restart') && ids.has('pause-home'));
+ok('暫停選單有繼續／重新開始／回房間／回首頁',
+  ids.has('pause-resume') && ids.has('pause-restart') && ids.has('pause-room') && ids.has('pause-home'));
 
 /* ---------- 3. 右上角設定 ---------- */
 ok('右上角有設定按鈕', ids.has('btn-gear'));
@@ -77,6 +77,7 @@ for (const id of ['set-vibrate', 'set-sens', 'set-cam', 'set-zoom', 'set-motion'
   const app = read('public/js/app.js');
   ok('單機與線上都走同一個浮層', /showRaceResult\(G\.lastResults\)/.test(app));
   ok('線上「再玩一場」就地準備，不跳頁', /readyAgain\(\)/.test(app));
+  ok('詳細結算頁可以回房間', /\$\('result-room'\)\.addEventListener/.test(app) && /backToRoom\(\)/.test(app));
 }
 
 /* ---------- 4. 對戰畫面的資訊配置：Summary 與聊天都在左側 ---------- */
@@ -91,8 +92,9 @@ ok('比賽中有畫面上的暫停鍵', ids.has('btn-pause') && /btn-pause.*togg
 ok('暫停鍵跟 Esc 走同一個入口',
   /\$\('btn-pause'\)\.addEventListener\('click'[\s\S]{0,120}togglePause\(\)/.test(app) &&
   /onPause/.test(app));
+ok('暫停選單可以回房間', /\$\('pause-room'\)\.addEventListener/.test(app) && /backToRoom\(\)/.test(app));
 ok('暫停鍵只在比賽中、而且只在單機出現',
-  /pauseBtn\.hidden = !\(name === 'race' && G\.mode !== 'online'\)/.test(app));
+  /pauseBtn\.hidden = !\(D\.body\.dataset\.screen === 'race' && G\.mode !== 'online'/.test(app));
 ok('暫停鍵不會壓到齒輪', /#btn-pause \{[^}]*right:/.test(css));
 ok('Summary 靠左', /\.summary\s*\{[^}]*left:/.test(css));
 ok('聊天室在左下', /\.chat-dock\s*\{[^}]*left:[^}]*bottom:/.test(css));

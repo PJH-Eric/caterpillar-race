@@ -112,6 +112,22 @@ for (const def of Tracks.TRACKS) {
   ok(def.id + ' 起跑前方保持直線', maxStartTurn < 0.7, maxStartTurn.toFixed(2));
 }
 
+{
+  const tr = Tracks.get('garden', 'start-order');
+  const racers = Array.from({ length: 4 }, (_, i) => ({ id: 'start-' + i, kind: 'human' }));
+  const slotOf = seed => Rules.createRace({ track: tr, seed, racers }).racers.map(r =>
+    tr.starts.findIndex(s => Math.abs(s.x - r.x) < 0.001 && Math.abs(s.y - r.y) < 0.001));
+  const first = slotOf('start-a');
+  const second = slotOf('start-b');
+  const distances = first.map(slot => Math.abs(slot - 3.5)).sort((a, b) => a - b);
+  const centerOwner = slots => slots.findIndex(slot => slot === 3);
+  ok('選手起跑位置從中央向兩側排',
+    distances.join(',') === '0.5,0.5,1.5,1.5',
+    first.join(','));
+  ok('中央起跑格由種子隨機分配', centerOwner(first) !== centerOwner(second),
+    centerOwner(first) + ' vs ' + centerOwner(second));
+}
+
 /* 隨機賽道：同一個 seed 一定長出同一張 */
 const r1 = Tracks.get('random', 'abc'), r2 = Tracks.get('random', 'abc'), r3 = Tracks.get('random', 'xyz');
 ok('同一個 seed 的隨機賽道完全一樣',
@@ -371,9 +387,12 @@ group('五、道具');
 {
   /* 撞到道具葉才會拿到道具 */
   const st = race();
-  run(st, 100);
   const a = st.racers[0];
   ok('一開始身上沒有道具', a.item === null);
+  run(st, 100);
+  /* 起跑席位現在每局隨機，測試碰葉子前把場上的葉子重置，避免剛好路過時先撿到。 */
+  a.item = null;
+  for (const l of st.leaves) l.readyAt = 0;
   const leaf = st.leaves[0];
   a.x = leaf.x; a.y = leaf.y;
   Rules.step(st, { a: { steer: 0, use: false } });

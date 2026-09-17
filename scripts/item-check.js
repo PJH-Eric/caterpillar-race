@@ -27,6 +27,7 @@ console.log('道具行為\n');
 {
   const st = two();
   const a = st.racers[0];
+  a.padUntil = 0;                  /* 隨機起跑位置可能剛踩到加速帶，先隔離果汁效果 */
   const before = Rules.speedFactor(st, a, Tracks.SURFACE.TRACK, 0);
   a.item = 'juice';
   Rules.step(st, { a: { steer: 0, use: true } });

@@ -151,10 +151,17 @@
     const lobbyLink = $('lobby-home-link');
     if (lobbyLink) lobbyLink.hidden = (name !== 'home');
     if (name !== 'race') stopLoop();
-    /* 比賽中才出現的暫停鍵。線上按了不能把別人一起停住，所以線上不給。 */
-    const pauseBtn = $('btn-pause');
-    if (pauseBtn) pauseBtn.hidden = !(name === 'race' && G.mode !== 'online');
+    syncPauseButton();
     if (name === 'home' || name === 'setup') G.audio.setTheme(G.settings.lastTrack || 'garden');
+  }
+
+  /* 暫停鍵只屬於正在看的賽道畫面，結算浮層蓋上來時也要收起來。 */
+  function syncPauseButton() {
+    const pauseBtn = $('btn-pause');
+    if (!pauseBtn) return;
+    const result = $('race-result');
+    pauseBtn.hidden = !(D.body.dataset.screen === 'race' && G.mode !== 'online' &&
+      (!G.state || G.state.phase !== 'finished') && (!result || result.hidden));
   }
 
   /* ================================================================
@@ -386,7 +393,8 @@
       '<p><b>土色跑道</b>跑最快。<b>草地</b>還能走，但只剩六成半的速度。<b>深色泥巴</b>更慢，剩四成半。</p>' +
       '<p><b>發亮的露珠</b>是加速帶，踩過去會快 1.5 秒。<b>發光的葉子</b>是道具，撞上去就抽一個。</p>' +
       '<p><b>石頭和樹幹</b>撞到會彈開，速度只剩三成半，所以能閃就閃。</p>' +
-      '<p>先跑完指定圈數的人贏。倒著跑不會多算圈數，每一圈都要照順序經過賽道上的檢查點。</p></section>' +
+      '<p>繞圈賽先跑完指定圈數的人贏；單程賽跑到終點就結束。倒著跑不會多算圈數，' +
+      '每一圈都要照順序經過賽道上的檢查點，起跑時大家會從中央向左右排在同一條線上。</p></section>' +
 
       '<section class="panel"><h3>六種道具</h3>' + itemHtml +
       '<p class="hint">右上角設定可以關掉負面道具；幼幼班本來就不會抽到。</p></section>';
@@ -668,7 +676,7 @@
   ];
   /* 鏡頭偏航要跟誰：
    *   track  跟前方賽道的方向（預設）—— 修方向的左右擺完全不會傳到畫面
-   *   chase  跟毛毛蟲的車頭 —— 比較跟手，但扭的時候畫面會跟著晃
+   *   chase  跟毛毛蟲的車頭 —— 比較跟手，但快速修方向時畫面會跟著晃
    */
   const CAM_YAW_LERP = { track: 0.16, chase: 0.30 };
   const CAM_POS_LERP = 0.10;     /* 位置的跟隨速度，慢一點才不會被身體擺動帶著抖 */
@@ -703,7 +711,7 @@
    * 鏡頭跟著它走，直線上畫面就一直左右搖。
    *
    * 改成看「平滑過的行進方向」：把速度向量做指數平滑再取角度。
-   * 平滑的是向量不是角度 —— 扭左跟扭右的橫向分量會自己抵銷掉，
+   * 平滑的是向量不是角度 —— 左右修正的橫向分量會自己抵銷掉，
    * 所以直線上算出來就是一條直的，過彎時才真的轉過去。
    * 時間常數約 0.55 秒，蓋掉一個完整的擺動週期還有餘裕，彎道也還跟得上。
    */
@@ -948,7 +956,7 @@
     root.Render.drawWorm3D(ctx, P, ch, pts, {
       t: st.t,
       angle: r.angle,
-      wiggle: st.t < r.padUntil || st.t < r.juiceUntil,
+      boost: st.t < r.padUntil || st.t < r.juiceUntil,
       tiny: st.t < r.tinyUntil,
       shield: st.t < r.shieldUntil,
       hop: st.t < r.hopUntil,
@@ -1160,6 +1168,7 @@
   function updateHud() {
     const st = G.state, me = myRacer();
     if (!st || !me) return;
+    syncPauseButton();
     const hud = G.hud;
 
     if (hud.rank !== me.rank) { hud.rank = me.rank; $('my-rank').textContent = String(me.rank); }
@@ -1275,6 +1284,7 @@
     const online = (G.mode === 'online');
     $('again').textContent = online ? '回房間' : '再來一局';
     $('result-home').textContent = online ? '離開房間' : '回首頁';
+    $('result-room').textContent = online ? '回房間' : '回選單';
     G.audio.stopBgm();
     /* 衝線之後先讓畫面停一秒：看得到自己的名次、終點線、還有誰沒跑完，
      * 再離開賽道畫面。收局的瞬間就換頁的話，那一格名次根本來不及看。 */
@@ -1316,11 +1326,13 @@
     $('rr-more').textContent = '看詳細統計';
     $('rr-stats').hidden = true;
     box.hidden = false;
+    syncPauseButton();
   }
 
   function hideRaceResult() {
     const box = $('race-result');
     if (box) box.hidden = true;
+    syncPauseButton();
   }
 
   /** 把上一局的名次畫進房間的面板 */
@@ -1356,6 +1368,11 @@
       modal.close(); G.paused = false; G.audio.stopBgm();
       if (G.mode === 'online' && root.Online) root.Online.leave();
       show('home');
+    });
+    $('pause-room').addEventListener('click', () => {
+      modal.close(); G.paused = false; G.audio.stopBgm();
+      if (G.mode === 'online' && root.Online) { root.Online.backToRoom(); return; }
+      show('setup');
     });
     $('modal-pause').querySelector('[data-close]').addEventListener('click', () => { G.paused = false; modal.close(); });
     /* 畫面上的暫停鍵：跟 Esc 同一個入口，手機沒有鍵盤就靠它 */
@@ -1403,6 +1420,10 @@
     $('result-home').addEventListener('click', () => {
       if (G.mode === 'online' && root.Online) root.Online.leave();
       show('home');
+    });
+    $('result-room').addEventListener('click', () => {
+      if (G.mode === 'online' && root.Online) { root.Online.backToRoom(); return; }
+      show('setup');
     });
     $('rr-again').addEventListener('click', () => {
       if (G.mode === 'online') {

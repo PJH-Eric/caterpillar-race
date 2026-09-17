@@ -518,7 +518,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .stats ul { display: grid; gap: 4px; font-size: .85em; }
 .stats li { display: flex; }
 .stats li span { margin-left: auto; font-weight: 800; }
-.result-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+.result-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%; }
 .result-list.compact li { min-height: 40px; padding: 4px 8px; font-size: .85em; }
 .result-list.compact svg { width: 30px; height: 30px; }
 .result-list.compact .rlap { display: none; }

@@ -1095,7 +1095,7 @@
   /**
    * 畫一隻立體毛毛蟲。
    * @param {Array} pts 身體各節的「地面世界座標」（[0] 是頭）
-   * @param {object} o  { t, angle, wiggle（加速中）, tiny, ghost, shield, hop, slow, reduceMotion, isMe }
+   * @param {object} o  { t, angle, boost（加速中）, tiny, ghost, shield, hop, slow, reduceMotion, isMe }
    */
   function drawWorm3D(ctx, P, ch, pts, o) {
     const scale = o.tiny ? 0.72 : 1;

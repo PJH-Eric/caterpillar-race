@@ -34,7 +34,7 @@
     SEG_GAP: 9,
 
     /* 速度 */
-    BASE_SPEED: 200,           /* 跑道上的基礎速度（單位／秒）。按住前進就是這個速度 */
+    BASE_SPEED: 190,           /* 跑道上的基礎速度（單位／秒）。按住前進就是這個速度 */
     ACCEL: 450,
     BRAKE: 1050,               /* 目標比現在慢時，掉速比加速快 */
     GAS_UP: 1.0,               /* 鍵盤「上」：按住就是基礎速度，不再額外加成 */
@@ -43,7 +43,7 @@
 
     /* 轉向 */
     TURN: 3.15,                /* 低速時的最大角速度（弧度／秒） */
-    TURN_SPEED_FALLOFF: 0.25,  /* 越快越轉不動。0.42 太重，衝刺中根本轉不過彎 */
+    TURN_SPEED_FALLOFF: 0.25,  /* 越快越轉不動。0.42 太重，高速時根本轉不過彎 */
     TURN_PENALTY: 0.12,        /* 轉向中的速度懲罰上限 */
     /* 轉向慣性：毛毛蟲要花時間才把身體彎過去，不是按下去就瞬間滿舵。
      * 點一下只會畫出小小的 S 形，持續按住才轉得動彎道。 */
@@ -90,6 +90,23 @@
 
   /* ---------- 建立一局 ---------- */
 
+  /** 起跑席位由中央向左右展開，每局用種子隨機分配給選手。 */
+  function centerOutStartSlots(count, rng) {
+    const order = [];
+    const left = Math.floor((count - 1) / 2);
+    const right = Math.ceil((count - 1) / 2);
+    for (let distance = 0; order.length < count; distance++) {
+      const pair = [];
+      const a = left - distance;
+      const b = right + distance;
+      if (a >= 0) pair.push(a);
+      if (b < count && b !== a) pair.push(b);
+      if (distance === 0) rng.shuffle(pair);
+      order.push(...pair);
+    }
+    return order;
+  }
+
   /**
    * @param {object} opt
    *   track     Tracks.get() 產出的賽道
@@ -103,9 +120,21 @@
     const laps = opt.laps || track.laps;
     const seed = opt.seed || RNG.newSeed();
     const N = track.nodes.length;
+    const startRng = RNG.create(seed + ':starts');
+    const startSlots = centerOutStartSlots(track.starts.length, startRng);
+    const racerList = opt.racers || [];
+    /* 線上全員都是玩家時打散座位，單機保留玩家與 AI 的難度順序，避免 AI
+     * 因為換到不同橫向位置而在某些彎道卡住。 */
+    const allHuman = racerList.every(r => (r.kind || 'human') === 'human');
+    const racerOrder = allHuman
+      ? startRng.shuffle(Array.from({ length: racerList.length }, (_, i) => i))
+      : Array.from({ length: racerList.length }, (_, i) => i);
+    const racerSlots = [];
+    for (let i = 0; i < racerOrder.length; i++) racerSlots[racerOrder[i]] = startSlots[i % startSlots.length];
 
-    const racers = (opt.racers || []).map((r, i) => {
-      const start = track.starts[i % track.starts.length];
+    const racers = racerList.map((r, i) => {
+      const slot = racerSlots[i];
+      const start = track.starts[slot];
       return {
         id: r.id,
         name: r.name || ('毛毛蟲' + (i + 1)),
