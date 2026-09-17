@@ -75,7 +75,8 @@
   }
 
   /** Modal：遮罩、焦點鎖定、Esc 關閉、關閉後焦點回到原本的按鈕 */
-  function modal(el, opener) {
+  function modal(el, opener, options) {
+    options = options || {};
     let lastFocus = opener || null;
     const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
@@ -83,7 +84,11 @@
       return [].slice.call(el.querySelectorAll(FOCUSABLE)).filter(n => !n.disabled && n.offsetParent !== null);
     }
     function onKey(e) {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
+      if (e.key === 'Escape') {
+        e.preventDefault(); e.stopPropagation(); close();
+        if (typeof options.onEscape === 'function') options.onEscape();
+        return;
+      }
       if (e.key !== 'Tab') return;
       const list = items();
       if (!list.length) return;

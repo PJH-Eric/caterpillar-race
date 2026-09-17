@@ -1357,7 +1357,10 @@
    * ================================================================ */
 
   function buildPause() {
-    const modal = root.SvgUI.modal($('modal-pause'));
+    const modal = root.SvgUI.modal($('modal-pause'), null, {
+      /* Modal 會在捕獲階段吃掉第二次 Esc，這裡同步解除遊戲暫停。 */
+      onEscape: () => { G.paused = false; }
+    });
     G.pauseModal = modal;
     $('pause-resume').addEventListener('click', () => { G.paused = false; modal.close(); });
     $('pause-restart').addEventListener('click', () => {
