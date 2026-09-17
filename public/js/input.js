@@ -38,9 +38,18 @@
       else if (dir === 'down') state.down = down;
     }
 
+    function isTextEntry(e) {
+      const el = e.target;
+      if (!el || !el.tagName) return false;
+      const tag = el.tagName.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+    }
+
     /* ---------- 鍵盤 ---------- */
     function onKey(e, down) {
       const k = e.key;
+      /* 聊天室等文字欄位要保留 Enter 送出、空白鍵與方向鍵輸入。 */
+      if (isTextEntry(e) && k !== 'Escape') return;
       if (down && (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown'
         || k === 'a' || k === 'A' || k === 'd' || k === 'D'
         || k === 'w' || k === 'W' || k === 's' || k === 'S')) state.manual = true;

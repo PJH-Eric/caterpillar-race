@@ -21,6 +21,7 @@ const html = read('public/index.html');
 const css = read('public/css/style.css');
 const app = read('public/js/app.js');
 const online = read('public/js/online.js');
+const input = read('public/js/input.js');
 const protocol = read('lib/protocol.js');
 
 console.log('畫面流程與 RWD\n');
@@ -106,6 +107,9 @@ ok('房間聊天室高度依內容調整',
   /\.room-body\s*\{[^}]*grid-template-rows:\s*max-content auto auto/.test(css) &&
   /\.room-chat\s*\{[^}]*min-height:\s*0/.test(css) &&
   /\.room-chat \.chat-log\s*\{[^}]*max-height:\s*120px[^}]*min-height:\s*0/.test(css));
+ok('聊天室按 Enter 可以送出訊息',
+  /isTextEntry\(e\)/.test(input) && /k !== 'Escape'/.test(input) &&
+  /form\.addEventListener\('submit'/.test(online));
 ok('聊天有未讀數', ids.has('chat-unread'));
 ok('窄版 Summary 可以收合', ids.has('sum-toggle') && /\.sum-toggle\s*\{\s*display:\s*none/.test(css));
 ok('有小地圖（鏡頭會轉，需要不轉的參考）', ids.has('minimap'));
