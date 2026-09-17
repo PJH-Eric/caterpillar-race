@@ -62,7 +62,10 @@
 
     <section class="panel">
       <h3>選賽道</h3>
-      <div class="track-grid" id="track-grid" role="radiogroup" aria-label="選賽道"></div>
+      <div class="track-picker">
+        <div class="track-tabs" id="track-tabs" role="tablist" aria-label="賽道分類"></div>
+        <div class="track-grid" id="track-grid" role="radiogroup" aria-label="選賽道"></div>
+      </div>
     </section>
 
     <section class="panel">
@@ -140,7 +143,10 @@
     <section class="panel room-track-panel" id="room-track-panel">
       <h3>選擇賽道</h3>
       <p class="hint" id="room-track-hint"></p>
-      <div class="track-grid" id="room-track-grid" role="radiogroup" aria-label="賽道"></div>
+      <div class="track-picker">
+        <div class="track-tabs" id="room-track-tabs" role="tablist" aria-label="賽道分類"></div>
+        <div class="track-grid" id="room-track-grid" role="radiogroup" aria-label="賽道"></div>
+      </div>
     </section>
     <!-- 上一局的成績：留在房間裡看，不用跳出去 -->
     <section class="panel room-result" id="room-result" hidden>

@@ -619,7 +619,10 @@
     shroom: ['mushroom', 'mushroom', 'glowbud', 'mushroom'],
     beach: ['reed', 'bush', 'reed', 'tree', 'reed'],
     canyon: ['bush', 'acorn', 'bush', 'tree'],
-    snow: ['tree', 'bush', 'tree', 'bush']
+    snow: ['tree', 'bush', 'tree', 'bush'],
+    bloom: ['flower', 'flower', 'bush', 'flower', 'tree'],
+    volcano: ['bush', 'acorn', 'bush', 'tree'],
+    starry: ['glowbud', 'bush', 'flower', 'glowbud', 'tree']
   };
 
   /** 開局沿賽道兩側撒一次，之後每一幀只是投影它們 */

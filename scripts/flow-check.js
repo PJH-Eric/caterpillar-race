@@ -136,5 +136,28 @@ ok('有邀請連結按鈕', ids.has('room-invite'));
 ok('邀請連結帶 room 與 token 兩個參數', /room=.*t=/.test(online));
 ok('房主才看得到房間設定', /room-owner-only/.test(html) && /ownerBox\.hidden = !room\.isOwner/.test(online));
 
+/* ---------- 9. 賽道分頁 ---------- */
+{
+  const Tracks = require('../public/js/tracks.js');
+  ok('單機與房間都有賽道分頁', ids.has('track-tabs') && ids.has('room-track-tabs'));
+  ok('兩邊共用同一支 buildTrackGrid', /App\.buildTrackGrid\(grid/.test(online) && /function buildTrackGrid/.test(app));
+  ok('分頁放不下會換行，不是橫向捲', /\.track-tabs\s*\{[^}]*flex-wrap:\s*wrap/.test(css) &&
+    !/\.track-tabs\s*\{[^}]*overflow-x:\s*auto/.test(css));
+  ok('賽道格子自己捲動，不會把整頁撐長', /\.track-grid\s*\{[^}]*max-height/.test(css) &&
+    /\.track-grid\s*\{[^}]*overflow-y:\s*auto/.test(css));
+  ok('分頁狀態記在格子上（單機與房間各記各的）', /grid\.dataset\.tab/.test(app));
+  ok('開啟時會跳到目前選的賽道所在分頁', /Tracks\.groupOf\(cur\)/.test(app));
+
+  /* 每張賽道都要被某個分頁收走，不然會在「全部」以外看不到 */
+  const lost = Tracks.TRACKS.filter(d => Tracks.groupOf(d) === 'all').map(d => d.id + '(' + d.theme + ')');
+  ok('每張賽道都歸得到一個分頁', lost.length === 0, lost.join(', '));
+  const counts = {};
+  for (const d of Tracks.TRACKS) counts[Tracks.groupOf(d)] = (counts[Tracks.groupOf(d)] || 0) + 1;
+  const empty = Tracks.GROUPS.filter(g => g.themes && !counts[g.id]).map(g => g.name);
+  ok('沒有空的分頁', empty.length === 0, empty.join(', '));
+  ok('衝刺賽道在卡片上標「單程」不是圈數', /def\.open \? '單程'/.test(app));
+  ok('衝刺賽道的縮圖不畫成封閉迴圈', /def\.open \? 'polyline' : 'polygon'/.test(app));
+}
+
 console.log('\n畫面流程：' + pass + ' 通過，' + fail + ' 失敗');
 process.exit(fail ? 1 : 0);

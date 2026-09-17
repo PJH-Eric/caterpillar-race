@@ -179,9 +179,15 @@
     }
     $('seat-list').innerHTML = html;
 
-    /* 與單機共用圖片賽道卡片，選擇狀態以伺服器回覆為準。 */
+    /* 與單機共用圖片賽道卡片（含分頁），選擇狀態以伺服器回覆為準。 */
     const grid = $('room-track-grid');
-    if (!grid.children.length) {
+    const onGrid = [].filter.call(grid.children, c => c.dataset.trackId === room.trackId).length > 0;
+    /* 只有「房主換了賽道、而且換到別的分頁」才自動跳過去。
+     * 不比對有沒有換的話，自己切分頁看別類賽道時會被一直拉回去。 */
+    const moved = O.shownTrack !== room.trackId;
+    O.shownTrack = room.trackId;
+    if (!grid.children.length || (moved && !onGrid)) {
+      if (moved && !onGrid) grid.dataset.tab = '';
       App.buildTrackGrid(grid, room.trackId, def => {
         if (!O.room || !O.room.isOwner || O.room.phase === 'racing') return;
         O.net.send({ type: 'setup', trackId: def.id });

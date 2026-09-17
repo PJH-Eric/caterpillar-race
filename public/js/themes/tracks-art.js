@@ -87,6 +87,36 @@
       hill: '#A9603A', hillDark: '#7E4428', sun: '#FFE1A0',
       decor: ['pebble', 'twig', 'clover'], night: false
     },
+    bloom: {
+      name: '花海平原',
+      grass: '#B7E88C', grassDark: '#93CC69', grassAlt: '#D2F3AC',
+      road: '#E0B28A', roadDark: '#BE8F68', roadEdge: '#FFEEDC',
+      mud: '#7E5A44', boost: '#FFD6F0', sky: '#FDEBF6',
+      rock: '#C9B8C6', rockDark: '#9C8B99',
+      sky2: '#F0B6DC', skyLow: '#FFF2FA',
+      hill: '#A8D77E', hillDark: '#7FB35B', sun: '#FFF6D8',
+      decor: ['flower', 'flower', 'clover'], night: false
+    },
+    volcano: {
+      name: '熔岩火山',
+      grass: '#4A3B3B', grassDark: '#332828', grassAlt: '#5C4A48',
+      road: '#8E6A55', roadDark: '#6E4F3E', roadEdge: '#FFB870',
+      mud: '#2E2320', boost: '#FFC24A', sky: '#5A2A24',
+      rock: '#6A5450', rockDark: '#453533',
+      sky2: '#C8502C', skyLow: '#F08A4A',
+      hill: '#5B3A34', hillDark: '#3E2723', sun: '#FFD07A',
+      decor: ['pebble', 'pebble', 'twig'], night: true
+    },
+    starry: {
+      name: '星空草原',
+      grass: '#3A3468', grassDark: '#282350', grassAlt: '#4A4380',
+      road: '#8E86C8', roadDark: '#6C64A2', roadEdge: '#D8D0FF',
+      mud: '#241F42', boost: '#A8E8FF', sky: '#171338',
+      rock: '#524A80', rockDark: '#38325C',
+      sky2: '#241E4E', skyLow: '#463C7C',
+      hill: '#2C2656', hillDark: '#1C1840', sun: '#FFF3B8',
+      decor: ['glow', 'flower', 'pebble'], night: true
+    },
     snow: {
       name: '雪地蜿蜒',
       grass: '#F4FAFF', grassDark: '#D7E7F4', grassAlt: '#FFFFFF',

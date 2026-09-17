@@ -206,45 +206,105 @@
     const theme = TrackArt.get(def.theme);
     const lw = Math.max(w, h) * 0.075;
     const pad = lw * 0.9;
+    /* 衝刺賽道是一條路不是一圈，用 polyline 才不會多畫一段把頭尾接起來 */
+    const tag = def.open ? 'polyline' : 'polygon';
+    const cap = def.open ? ' stroke-linecap="round"' : '';
+    const line = (color, width) => '<' + tag + ' points="' + pts + '" fill="none" stroke="' + color +
+      '" stroke-width="' + width + '" stroke-linejoin="round"' + cap + '/>';
     return '<svg class="mini-track" viewBox="' + (-pad) + ' ' + (-pad) + ' ' + (w + pad * 2) + ' ' + (h + pad * 2) + '" preserveAspectRatio="xMidYMid meet" aria-hidden="true">' +
-      '<polygon points="' + pts + '" fill="none" stroke="' + theme.roadEdge + '" stroke-width="' + lw + '" stroke-linejoin="round"/>' +
-      '<polygon points="' + pts + '" fill="none" stroke="' + theme.road + '" stroke-width="' + (lw * 0.68) + '" stroke-linejoin="round"/>' +
-      '</svg>';
+      line(theme.roadEdge, lw) + line(theme.road, lw * 0.68) + '</svg>';
+  }
+
+  /* 賽道分頁：全部／五個主題大類／隨機。分頁狀態記在 grid 元素上，
+   * 所以單機跟線上房間各自記各自的，不會互相干擾。 */
+  function trackDefs() {
+    const randomPreview = Tracks.randomDef('preview');
+    return Tracks.TRACKS.concat([Object.assign({}, randomPreview, {
+      id: 'random', name: '隨機賽道',
+      desc: '每一局都不一樣，用種子現生出來的新賽道。', stars: 3, laps: 3
+    })]);
+  }
+
+  function trackCard(def, selected, onPick) {
+    const b = D.createElement('button');
+    b.type = 'button';
+    b.className = 'track-card';
+    b.setAttribute('role', 'radio');
+    b.dataset.trackId = def.id;
+    b.setAttribute('aria-checked', String(def.id === selected));
+    let stars = '';
+    for (let i = 1; i <= 4; i++) stars += root.SvgUI.starIcon(i <= (def.stars || 1));
+    /* 衝刺賽道沒有圈數，標「單程」比標「1 圈」清楚 */
+    const mode = def.open ? '單程' : ((def.laps || 3) + ' 圈');
+    b.innerHTML = trackThumb(def) +
+      '<b>' + def.name + '</b>' +
+      '<span class="t-meta">' + stars + '<span>' + mode + '</span></span>' +
+      '<span class="t-desc">' + def.desc + '</span>';
+    b.addEventListener('click', () => onPick(def, b));
+    return b;
   }
 
   function buildTrackGrid(grid, selected, onSelect) {
     grid = grid || $('track-grid');
     selected = selected || G.settings.lastTrack;
-    grid.innerHTML = '';
-    const randomPreview = Tracks.randomDef('preview');
-    const defs = Tracks.TRACKS.concat([Object.assign({}, randomPreview, {
-      name: '隨機賽道', desc: '每一局都不一樣，用種子現生出來的新賽道。', stars: 3, laps: 3
-    })]);
-    for (const def of defs) {
-      const b = D.createElement('button');
-      b.type = 'button';
-      b.className = 'track-card';
-      b.setAttribute('role', 'radio');
-      b.dataset.trackId = def.id;
-      b.setAttribute('aria-checked', String(def.id === selected));
-      let stars = '';
-      for (let i = 1; i <= 4; i++) stars += root.SvgUI.starIcon(i <= (def.stars || 1));
-      b.innerHTML = trackThumb(def) +
-        '<b>' + def.name + '</b>' +
-        '<span class="t-meta">' + stars + '<span>' + (def.laps || 3) + ' 圈</span></span>' +
-        '<span class="t-desc">' + def.desc + '</span>';
-      b.addEventListener('click', () => {
-        if (onSelect) { onSelect(def); return; }
-        G.settings.lastTrack = def.id;
-        root.Store.save(G.settings);
-        for (const n of grid.children) n.setAttribute('aria-checked', 'false');
-        b.setAttribute('aria-checked', 'true');
-        G.audio.setTheme(def.theme);
-        refreshBest();
+    const picker = grid.parentNode;
+    const tabs = picker && picker.querySelector ? picker.querySelector('.track-tabs') : null;
+    const defs = trackDefs();
+
+    const pick = (def, b) => {
+      if (onSelect) { onSelect(def); return; }
+      G.settings.lastTrack = def.id;
+      root.Store.save(G.settings);
+      for (const n of grid.children) n.setAttribute('aria-checked', 'false');
+      b.setAttribute('aria-checked', 'true');
+      G.audio.setTheme(def.theme);
+      refreshBest();
+      G.audio.play('tap');
+    };
+
+    const fill = tabId => {
+      grid.innerHTML = '';
+      for (const def of defs) {
+        if (tabId !== 'all' && Tracks.groupOf(def) !== tabId) continue;
+        grid.appendChild(trackCard(def, selected, pick));
+      }
+      grid.scrollTop = 0;
+    };
+
+    if (!tabs) { fill('all'); return; }
+
+    /* 一開啟就跳到「現在選的那張」所屬的分頁，不用自己找 */
+    const cur = defs.filter(d => d.id === selected)[0];
+    const want = grid.dataset.tab || Tracks.groupOf(cur) || 'all';
+    const has = Tracks.GROUPS.filter(g => g.id === want).length > 0;
+    let active = has ? want : 'all';
+
+    tabs.innerHTML = '';
+    const buttons = [];
+    for (const g of Tracks.GROUPS) {
+      const n = defs.filter(d => g.id === 'all' || Tracks.groupOf(d) === g.id).length;
+      if (!n) continue;
+      const t = D.createElement('button');
+      t.type = 'button';
+      t.className = 'track-tab';
+      t.setAttribute('role', 'tab');
+      t.dataset.tabId = g.id;
+      t.innerHTML = g.name + '<span class="t-n">' + n + '</span>';
+      t.addEventListener('click', () => {
+        active = g.id;
+        grid.dataset.tab = g.id;
+        for (const o of buttons) o.setAttribute('aria-selected', String(o === t));
+        fill(g.id);
         G.audio.play('tap');
       });
-      grid.appendChild(b);
+      tabs.appendChild(t);
+      buttons.push(t);
     }
+    for (const o of buttons) o.setAttribute('aria-selected', String(o.dataset.tabId === active));
+    grid.dataset.tab = active;
+    fill(active);
+    const sel = tabs.querySelector('[aria-selected="true"]');
+    if (sel && sel.scrollIntoView) sel.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
   function buildDiffRow() {

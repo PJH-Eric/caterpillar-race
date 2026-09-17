@@ -29,7 +29,13 @@
     /* 峽谷：低、乾、短促，像在石頭之間彈回來 */
     canyon: { wave: 'square', root: 60, decay: 0.34, bassWave: 'triangle', bright: 0.7 },
     /* 雪地：高、清透，衰減最長 */
-    snow: { wave: 'sine', root: 76, decay: 0.80, bassWave: 'sine', bright: 1.25 }
+    snow: { wave: 'sine', root: 76, decay: 0.80, bassWave: 'sine', bright: 1.25 },
+    /* 花海：比花園再亮一點、再軟一點，像一整片風吹過去 */
+    bloom: { wave: 'triangle', root: 73, decay: 0.58, bassWave: 'sine', bright: 1.18 },
+    /* 火山：最低最悶，短促帶顆粒，像隔著岩壁聽到的 */
+    volcano: { wave: 'sawtooth', root: 57, decay: 0.30, bassWave: 'square', bright: 0.55 },
+    /* 星空：高、稀薄、尾音很長，像夜裡的鐘 */
+    starry: { wave: 'sine', root: 79, decay: 0.90, bassWave: 'triangle', bright: 1.3 }
   };
 
   function midi(n) { return 440 * Math.pow(2, (n - 69) / 12); }
