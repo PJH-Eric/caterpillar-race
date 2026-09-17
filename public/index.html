@@ -143,6 +143,14 @@
       <div class="spec-list" id="spec-list"></div>
       <button class="big-btn ghost" id="room-switch" type="button">換到觀戰席</button>
     </section>
+    <!-- 上一局的成績：留在房間裡看，不用跳出去 -->
+    <section class="panel room-result" id="room-result" hidden>
+      <h3>上一局結果</h3>
+      <ol class="result-list compact" id="room-result-list"></ol>
+      <div class="room-buttons">
+        <button class="big-btn ghost" id="room-result-more" type="button">看詳細統計</button>
+      </div>
+    </section>
     <section class="panel room-chat">
       <h3>聊天室</h3>
       <ol class="chat-log" id="room-chat-log" aria-live="polite"></ol>
@@ -254,8 +262,8 @@
         </label>
         <label class="row"><span>鏡頭跟隨</span>
           <select id="set-cam">
-            <option value="track">跟賽道方向（穩，不容易暈）</option>
-            <option value="chase">跟毛毛蟲車頭（跟手但會晃）</option>
+            <option value="chase">跟毛毛蟲車頭（一般賽車，直線就是直的）</option>
+            <option value="track">跟賽道方向（比較不容易暈）</option>
           </select>
         </label>
         <label class="row"><span>鏡頭遠近</span>

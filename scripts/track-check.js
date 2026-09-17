@@ -65,5 +65,52 @@ console.log('    抽樣一圈時間 ' + bestT.toFixed(1) + 's ～ ' + worst.toFi
 ok('120 個隨機 seed 都長得出可以跑的賽道', badSeeds.length === 0, badSeeds.slice(0, 6).join(', '));
 ok('隨機賽道一圈不會誇張地長', worst < 70, worst.toFixed(1));
 
+/* 版型：不能每一張都是圓環 */
+{
+  const seen = {};
+  for (let i = 0; i < 200; i++) {
+    const d = Tracks.randomDef('shape-' + i);
+    seen[d.shape] = (seen[d.shape] || 0) + 1;
+  }
+  console.log('    版型分布 ' + Tracks.SHAPES.map(k => k + ':' + (seen[k] || 0)).join('  '));
+  ok('五種版型都抽得到', Tracks.SHAPES.every(k => seen[k] > 0),
+    Tracks.SHAPES.filter(k => !seen[k]).join(','));
+  ok('沒有哪一種版型獨佔一半以上',
+    Tracks.SHAPES.every(k => (seen[k] || 0) < 100),
+    JSON.stringify(seen));
+}
+
+/* 路面要夠寬，而且不能寬到自己貼到自己 */
+function selfOverlap(tr) {
+  const nd = tr.nodes, n = nd.length, skip = Math.max(8, Math.round(n * 0.09));
+  for (let i = 0; i < n; i++) {
+    for (let j = i + skip; j < n; j++) {
+      if (n - (j - i) < skip) continue;
+      const a = nd[i], b = nd[j];
+      const need = (a.w + b.w) * 0.95;
+      const dx = a.x - b.x, dy = a.y - b.y;
+      if (dx * dx + dy * dy < need * need) return true;
+    }
+  }
+  return false;
+}
+{
+  let narrow = [], glued = [];
+  for (const def of Tracks.TRACKS) {
+    const tr = Tracks.build(def);
+    const w = tr.nodes.reduce((a, n2) => a + n2.w, 0) / tr.nodes.length;
+    if (w < 100) narrow.push(def.id + '(' + w.toFixed(0) + ')');
+    if (selfOverlap(tr)) glued.push(def.id);
+  }
+  for (let i = 0; i < 40; i++) {
+    const tr = Tracks.get('random', 'wide-' + i);
+    const w = tr.nodes.reduce((a, n2) => a + n2.w, 0) / tr.nodes.length;
+    if (w < 100) narrow.push('rnd' + i + '(' + w.toFixed(0) + ')');
+    if (selfOverlap(tr)) glued.push('rnd' + i);
+  }
+  ok('每張賽道的路面都夠寬（平均 ≥ 100）', narrow.length === 0, narrow.slice(0, 5).join(', '));
+  ok('沒有賽道寬到自己黏住自己', glued.length === 0, glued.slice(0, 5).join(', '));
+}
+
 console.log('\n賽道：' + pass + ' 通過，' + fail + ' 失敗');
 process.exit(fail ? 1 : 0);

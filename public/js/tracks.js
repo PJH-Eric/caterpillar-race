@@ -167,10 +167,79 @@
    * @param {object} def 賽道定義（TRACKS 裡的一筆，或 randomDef 產出的）
    * @returns {object} 可以直接餵給 rules.js 的賽道
    */
+  /* 路面加寬倍率。
+   * 追尾視角下，原本的寬度在畫面上只佔中間細細一條，兩邊都是草地；
+   * 參考畫面裡的路是鋪滿整個下半部的。寬度是在這裡一次放大的，
+   * 每張賽道的 ctrl 都不用改；石頭會在下面自動往外推，不會被路吞掉。 */
+  const ROAD_WIDE = [1.62, 1.48, 1.34, 1.2, 1.08];   /* 想要的加寬倍率，由寬到窄 */
+  const ROAD_MIN_W = 102;   /* 再窄的賽道也不要窄到只剩一條線 */
+
+  /**
+   * 盡量加寬，但不能寬到自己貼到自己。
+   *
+   * 賽道繞回來從旁邊經過的地方（菜園迷宮、荷花池塘都有），
+   * 兩條路面一旦黏在一起，格子的節點索引就會對到錯的那一條，
+   * 計圈跟進度全部跟著壞掉 —— 就是之前那個「還沒到終點就完賽」的同一類問題。
+   * 所以由寬到窄試一輪，挑第一個不會黏住的倍率。
+   */
+  function fitWiden(nodes) {
+    const base = nodes.map(nd => nd.w);
+    for (const k of ROAD_WIDE) {
+      for (let i = 0; i < nodes.length; i++) nodes[i].w = Math.max(base[i] * k, ROAD_MIN_W);
+      if (!selfOverlaps(nodes)) return k;
+    }
+    for (let i = 0; i < nodes.length; i++) nodes[i].w = base[i];
+    return 1;
+  }
+
+  function widenBy(nodes, k) {
+    for (const nd of nodes) nd.w = Math.max(nd.w * k, ROAD_MIN_W);
+    return nodes;
+  }
+
+  /** 路變寬之後，原本擦邊的石頭會落到路面上，沿著法線推出去 */
+  function pushRocksOut(rocks, nodes) {
+    const n = nodes.length;
+    return rocks.map(rk => {
+      let best = -1, bestD = Infinity;
+      for (let i = 0; i < n; i++) {
+        const dx = nodes[i].x - rk[0], dy = nodes[i].y - rk[1];
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best < 0) return rk;
+      const nd = nodes[best];
+      const lat = (rk[0] - nd.x) * nd.nx + (rk[1] - nd.y) * nd.ny;
+      const need = nd.w + rk[2] + 14;
+      if (Math.abs(lat) >= need) return rk;
+      const side = lat >= 0 ? 1 : -1;
+      const along = (rk[0] - nd.x) * nd.tx + (rk[1] - nd.y) * nd.ty;
+      return [
+        nd.x + nd.tx * along + nd.nx * side * need,
+        nd.y + nd.ty * along + nd.ny * side * need,
+        rk[2]
+      ];
+    });
+  }
+
   function build(def) {
-    const nodes = addTangents(sample(def.ctrl, true), true);
+    let ctrl = def.ctrl;
+    let nodes = addTangents(sample(ctrl, true), true);
+    let wideK = fitWiden(nodes);
+    /* 有些賽道（菜園迷宮、夜光蘑菇）自己繞回來的地方本來就很擠，
+     * 路面根本加不寬。那就把整張圖等比例放大 —— 形狀一模一樣，
+     * 只是彎跟彎之間空出距離，路面才寬得起來。 */
+    if (wideK < 1.2) {
+      const GROW = 1.32;
+      ctrl = ctrl.map(p => [p[0] * GROW, p[1] * GROW, p[2]]);
+      nodes = addTangents(sample(ctrl, true), true);
+      wideK = fitWiden(nodes);
+    }
+    const scaled = ctrl !== def.ctrl;
+    const grow = scaled ? 1.32 : 1;
     const shortcuts = (def.shortcuts || []).map(sc => ({
-      nodes: addTangents(sample(sc.ctrl, false), false),
+      nodes: widenBy(addTangents(sample(
+        grow === 1 ? sc.ctrl : sc.ctrl.map(p => [p[0] * grow, p[1] * grow, p[2]]), false), false), wideK),
       /* 捷徑接回主賽道的節點 index，用來讓進度計算不會倒退 */
       from: sc.from, to: sc.to
     }));
@@ -188,8 +257,10 @@
     const grid = makeGrid(bounds);
     paintRibbon(grid, nodes, SURFACE.TRACK, true);
     for (const sc of shortcuts) paintRibbon(grid, sc.nodes, SURFACE.TRACK, false);
-    for (const m of def.mud || []) paintBlob(grid, m[0], m[1], m[2], SURFACE.MUD);
-    for (const b of def.boosts || []) paintBlob(grid, b[0], b[1], b[2], SURFACE.BOOST);
+    const mudList = (def.mud || []).map(m => [m[0] * grow, m[1] * grow, m[2]]);
+    const boostList = (def.boosts || []).map(b => [b[0] * grow, b[1] * grow, b[2]]);
+    for (const m of mudList) paintBlob(grid, m[0], m[1], m[2], SURFACE.MUD);
+    for (const b of boostList) paintBlob(grid, b[0], b[1], b[2], SURFACE.BOOST);
 
     /* 捷徑格子的節點 index：借用它接回主賽道的區間，進度才不會因為抄捷徑爆掉 */
     for (const sc of shortcuts) {
@@ -248,9 +319,10 @@
       random: !!def.random,
       seed: def.seed || def.id,
       nodes, shortcuts, grid, bounds, items, starts,
-      rocks: (def.rocks || []).map(r => ({ x: r[0], y: r[1], r: r[2] })),
-      mud: (def.mud || []).map(r => ({ x: r[0], y: r[1], r: r[2] })),
-      boosts: (def.boosts || []).map(r => ({ x: r[0], y: r[1], r: r[2] })),
+      rocks: pushRocksOut((def.rocks || []).map(r => [r[0] * grow, r[1] * grow, r[2]]), nodes)
+        .map(r => ({ x: r[0], y: r[1], r: r[2] })),
+      mud: mudList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
+      boosts: boostList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
       checkpoints: CHECKPOINTS,
       length: nodes.length * NODE_STEP
     };
@@ -320,8 +392,8 @@
       rocks: [[0, 0, 150], [274, -668, 40], [-322, 574, 44]]
     },
     {
-      id: 'veggie', name: '菜園迷宮', theme: 'veggie', stars: 2, laps: 3,
-      desc: '菜畦之間的直角彎一個接一個，走線沒抓好就會撞牆。',
+      id: 'veggie', name: '菜園迷宮', theme: 'veggie', stars: 2, laps: 2,
+      desc: '菜畦之間的直角彎一個接一個，這張最長，走線沒抓好就會撞牆。',
       startNode: 0, itemCount: 12,
       ctrl: [
         [-560, -420, 74], [-160, -440, 74], [-140, -140, 70], [-480, -120, 70],
@@ -377,8 +449,8 @@
       rocks: [[0, -110, 120], [-661, 333, 54], [660, 330, 54]]
     },
     {
-      id: 'shroom', name: '夜光蘑菇', theme: 'shroom', stars: 4, laps: 3,
-      desc: '夜裡的蘑菇森林，路窄、彎急、捷徑多，是最難的一張。',
+      id: 'shroom', name: '夜光蘑菇', theme: 'shroom', stars: 4, laps: 2,
+      desc: '夜裡的蘑菇森林，彎急、捷徑多，是最難的一張。',
       startNode: 0, itemCount: 13,
       ctrl: [
         [-60, -560, 56], [230, -520, 54], [340, -320, 50], [200, -140, 46],
@@ -401,13 +473,98 @@
 
   /* ---------- 隨機賽道 ---------- */
 
-  /**
-   * 用極座標擾動生成一個閉環：先取 9～12 個角度均分的點，
-   * 每個點的半徑在合理範圍內抖動，再檢查相鄰半徑差距不要太誇張，
-   * 這樣 Catmull-Rom 平滑之後一定閉合、不自交、曲率也不會小到轉不過去。
+  /* ---------- 隨機賽道的五種版型 ----------
+   *
+   * 原本只有一種：極座標抖動的閉環 —— 所以每一張隨機賽道都是一個圓圓的環，
+   * 跑起來全長得一樣。改成五個版型輪流抽，剪影就完全不同了：
+   *
+   *   blob     圓環抖動（原本那種，留著當保底）
+   *   boxy     超橢圓：四條長直線 ＋ 四個角，像街道賽
+   *   kidney   腰果：一側凹進去一個深彎，一邊大直線一邊髮夾
+   *   peanut   啞鈴：兩個大圓弧中間收一個窄腰
+   *   snake    蛇行長條：拉長的橢圓上疊正弦波，連續左右彎
+   *
+   * 五種都是「不自交的閉曲線」—— 計圈、格子索引、捷徑都建立在這個前提上，
+   * 真的畫成 8 字會讓同一格對到兩個節點 index，圈數就毀了。
    */
-  function randomDef(seed) {
-    const rng = RNG.create(seed);
+  const SHAPES = ['blob', 'boxy', 'kidney', 'peanut', 'snake'];
+  const SHAPE_NAME = {
+    blob: '圓環', boxy: '街道', kidney: '腰果', peanut: '啞鈴', snake: '蛇行'
+  };
+
+  /** 超橢圓的半徑：n 越大越方 */
+  function superR(a, b, n, th) {
+    const c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
+    return 1 / Math.pow(Math.pow(c / a, n) + Math.pow(s / b, n), 1 / n);
+  }
+
+  /** 產生某個版型的控制點（回傳 [[x, y, w], ...]，閉合） */
+  function shapeCtrl(shape, rng) {
+    const pts = [];
+    const rot = rng.range(0, Math.PI * 2);
+    const flip = rng.chance(0.5) ? 1 : -1;
+    const W = () => rng.range(60, 92);
+
+    if (shape === 'boxy') {
+      const n = rng.int(16, 20);
+      const a = rng.range(520, 700), b = a * rng.range(0.52, 0.82);
+      const pow = rng.range(3.2, 5.0);
+      for (let i = 0; i < n; i++) {
+        const th = (i / n) * Math.PI * 2;
+        const r = superR(a, b, pow, th);
+        pts.push([Math.cos(th + rot) * r, Math.sin(th + rot) * r * flip, W()]);
+      }
+      return pts;
+    }
+
+    if (shape === 'kidney') {
+      const n = rng.int(16, 20);
+      const base = rng.range(480, 600);
+      const dentAt = rng.range(0, Math.PI * 2);
+      const depth = rng.range(0.38, 0.52);
+      for (let i = 0; i < n; i++) {
+        const th = (i / n) * Math.PI * 2;
+        let d = th - dentAt;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        /* 高斯凹陷：只吃掉一小段角度，其餘維持大半徑 */
+        const r = base * (1 - depth * Math.exp(-(d * d) / 0.34));
+        pts.push([Math.cos(th + rot) * r, Math.sin(th + rot) * r * 0.86 * flip, W()]);
+      }
+      return pts;
+    }
+
+    if (shape === 'peanut') {
+      const n = rng.int(18, 22);
+      const a = rng.range(430, 540);
+      const waist = rng.range(0.46, 0.58);
+      for (let i = 0; i < n; i++) {
+        const th = (i / n) * Math.PI * 2;
+        const c = Math.cos(th);
+        const r = a * (waist + (1.24 - waist) * c * c);
+        pts.push([Math.cos(th + rot) * r, Math.sin(th + rot) * r * 0.9 * flip, W()]);
+      }
+      return pts;
+    }
+
+    if (shape === 'snake') {
+      const n = rng.int(20, 24);
+      const a = rng.range(640, 820), b = a * rng.range(0.34, 0.46);
+      const waves = rng.int(3, 5);
+      const amp = rng.range(0.13, 0.2);
+      for (let i = 0; i < n; i++) {
+        const th = (i / n) * Math.PI * 2;
+        const k = 1 + amp * Math.sin(th * waves);
+        pts.push([
+          Math.cos(th + rot) * a * k,
+          Math.sin(th + rot) * b * k * flip,
+          W()
+        ]);
+      }
+      return pts;
+    }
+
+    /* blob：原本那套極座標抖動 */
     const n = rng.int(9, 12);
     const baseR = rng.range(430, 560);
     const radii = [];
@@ -415,29 +572,107 @@
     /* 相鄰半徑差太大會出現尖角，壓平一輪 */
     for (let pass = 0; pass < 3; pass++) {
       for (let i = 0; i < n; i++) {
-        const a = radii[(i - 1 + n) % n], b = radii[(i + 1) % n];
-        radii[i] = radii[i] * 0.6 + (a + b) * 0.2;
+        const p = radii[(i - 1 + n) % n], q = radii[(i + 1) % n];
+        radii[i] = radii[i] * 0.6 + (p + q) * 0.2;
       }
     }
-    const rot = rng.range(0, Math.PI * 2);
-    const ctrl = [];
     for (let i = 0; i < n; i++) {
-      const a = rot + (i / n) * Math.PI * 2;
-      const w = rng.range(58, 94);
-      ctrl.push([Math.cos(a) * radii[i], Math.sin(a) * radii[i] * 0.86, w]);
+      const th = rot + (i / n) * Math.PI * 2;
+      pts.push([Math.cos(th) * radii[i], Math.sin(th) * radii[i] * 0.86, W()]);
+    }
+    return pts;
+  }
+
+  /**
+   * 這條閉曲線會不會自己撞到自己。
+   * 只要有兩個「不相鄰」的節點靠得比兩邊路寬加起來還近，鋪成路面之後就會黏在一起，
+   * 格子索引與計圈都會跟著壞掉，所以整張直接作廢重抽。
+   */
+  function selfOverlaps(nodes) {
+    const n = nodes.length;
+    /* 相鄰的節點本來就靠在一起，要跳過一段才算數。
+     * 注意是「環上的距離」：第 1 個跟最後一個也是鄰居。 */
+    const skip = Math.max(8, Math.round(n * 0.09));
+    for (let i = 0; i < n; i++) {
+      for (let j = i + skip; j < n; j++) {
+        if (n - (j - i) < skip) continue;      /* 從另一邊繞回去也還是鄰居 */
+        const a = nodes[i], b = nodes[j];
+        const need = (a.w + b.w) * 1.05;
+        const dx = a.x - b.x, dy = a.y - b.y;
+        if (dx * dx + dy * dy < need * need) return true;
+      }
+    }
+    return false;
+  }
+
+  /** 一張隨機賽道的候選：算出節點，順便把加速帶、泥巴、石頭擺在對的地方 */
+  function tryShape(shape, rng) {
+    const ctrl = shapeCtrl(shape, rng);
+    const nodes = addTangents(sample(ctrl, true), true);
+    if (nodes.length < 130 || nodes.length > 440) return null;
+    if (selfOverlaps(nodes)) return null;
+
+    /* 地形全部從節點算：站在路中央的一定在路上，往側邊推出去的一定在路外。
+     * 舊版把石頭寫死在原點，那是「一定是圓環」才成立的假設 ——
+     * 腰果跟啞鈴的中心點根本就在跑道上。 */
+    const boosts = [], mud = [], rocks = [];
+    const step = Math.max(14, Math.floor(nodes.length / 11));
+    for (let i = Math.floor(step / 2); i < nodes.length; i += step) {
+      const nd = nodes[i];
+      if (rng.chance(0.45)) boosts.push([nd.x, nd.y, rng.range(40, 58)]);
+      else if (rng.chance(0.5)) {
+        const off = nd.w * rng.range(-0.3, 0.3);
+        mud.push([nd.x + nd.nx * off, nd.y + nd.ny * off, rng.range(36, 52)]);
+      }
+    }
+    const rstep = Math.max(9, Math.floor(nodes.length / 16));
+    for (let i = 0; i < nodes.length; i += rstep) {
+      if (!rng.chance(0.55)) continue;
+      const nd = nodes[i];
+      const side = rng.chance(0.5) ? 1 : -1;
+      const off = side * (nd.w + rng.range(38, 96));
+      rocks.push([nd.x + nd.nx * off, nd.y + nd.ny * off, rng.range(22, 40)]);
+    }
+    if (!boosts.length) {
+      const nd = nodes[Math.floor(nodes.length / 3)];
+      boosts.push([nd.x, nd.y, 48]);
+    }
+    return { ctrl, boosts, mud, rocks, len: nodes.length * NODE_STEP };
+  }
+
+  /**
+   * 隨機賽道：五種版型輪流抽，抽到的形狀算不出合格的曲線就換一種再試，
+   * 真的都失敗才退回 blob（那一種幾乎不可能失敗）。
+   */
+  function randomDef(seed) {
+    const rng = RNG.create(seed);
+    const order = SHAPES.slice();
+    /* 洗牌，才不會每次都從 blob 開始試 */
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = rng.int(0, i);
+      const t = order[i]; order[i] = order[j]; order[j] = t;
     }
 
-    /* 加速帶、泥巴、石頭都擺在控制點附近，確定落在跑道上或跑道外 */
-    const boosts = [], mud = [], rocks = [[0, 0, Math.min(...radii) * 0.42]];
-    for (let i = 0; i < n; i++) {
-      const p = ctrl[i];
-      if (rng.chance(0.42)) boosts.push([p[0] * 0.99, p[1] * 0.99, rng.range(40, 58)]);
-      else if (rng.chance(0.38)) mud.push([p[0] * 0.99, p[1] * 0.99, rng.range(36, 54)]);
+    let got = null, shape = 'blob';
+    for (const sh of order) {
+      for (let attempt = 0; attempt < 6 && !got; attempt++) {
+        const cand = tryShape(sh, rng);
+        if (cand && cand.len > 1800 && cand.len < 5400) { got = cand; shape = sh; }
+      }
+      if (got) break;
     }
+    if (!got) {
+      shape = 'blob';
+      for (let attempt = 0; attempt < 12 && !got; attempt++) got = tryShape('blob', rng);
+    }
+
     return {
       id: 'random', name: '隨機賽道', theme: rng.pick(['garden', 'veggie', 'pond', 'candy', 'shroom', 'branch']),
-      desc: '每一局都不一樣的賽道。', stars: 3, laps: 3, random: true, seed: seed,
-      startNode: 0, itemCount: 12, ctrl, boosts, mud, rocks
+      desc: '每一局都不一樣的賽道（這張是「' + SHAPE_NAME[shape] + '」）。',
+      shape: shape,
+      stars: 3, laps: 3, random: true, seed: seed,
+      startNode: 0, itemCount: 12,
+      ctrl: got.ctrl, boosts: got.boosts, mud: got.mud, rocks: got.rocks
     };
   }
 
@@ -455,7 +690,7 @@
 
   return {
     SURFACE, CELL, NODE_STEP, CHECKPOINTS,
-    TRACKS, BY_ID, build, get, list, randomDef,
+    TRACKS, BY_ID, build, get, list, randomDef, SHAPES, SHAPE_NAME,
     surfaceAt, nodeAt, checkpointOf, lateralOf, sample, addTangents
   };
 });

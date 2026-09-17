@@ -177,6 +177,12 @@
         r.ghost = !!sr.ghost;
       }
 
+      /* 收局倒數：伺服器說了算 */
+      if (typeof s.ge === 'number') {
+        state.graceEnd = s.ge;
+        if (s.ge > 0 && !state.firstFinishAt) state.firstFinishAt = s.ge - Rules.C.FINISH_GRACE;
+      }
+
       /* 黏液與道具葉也照抄，免得本地預測自己長出不存在的東西 */
       state.goo = (s.goo || []).map(g => ({ x: g.x, y: g.y, owner: null, until: state.t + 99 }));
       if (s.leaves) {

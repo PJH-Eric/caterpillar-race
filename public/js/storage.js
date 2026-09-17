@@ -15,7 +15,7 @@
     sfx: true, sfxVol: 0.6,
     vibrate: true,
     steerSens: 1,          /* 0 慢 1 普通 2 快 */
-    camMode: 'track',      /* track 跟賽道方向（穩）｜chase 跟車頭（跟手但會晃） */
+    camMode: 'chase',      /* chase 跟車頭（一般賽車，預設）｜track 跟賽道方向（比較不會暈） */
     zoomLevel: 1,          /* 鏡頭遠近：0 近 1 普通 2 遠 */
     reduceMotion: false,
     colorAssist: false,

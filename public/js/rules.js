@@ -656,6 +656,8 @@
       raceT: +state.raceT.toFixed(3),
       phase: state.phase,
       laps: state.laps,
+      /* 收局倒數也要同步，不然連線時客戶端根本不知道在倒數（頭上的秒數就不會出現） */
+      ge: +state.graceEnd.toFixed(2),
       racers: state.racers.map(r => ({
         id: r.id, x: +r.x.toFixed(2), y: +r.y.toFixed(2), a: +r.angle.toFixed(3),
         sp: +r.speed.toFixed(1), tv: +r.turnVel.toFixed(3), lap: r.lap, cp: r.cp, rank: r.rank,

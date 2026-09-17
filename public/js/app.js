@@ -305,7 +305,9 @@
       '↓ 是煞車、停住之後慢慢倒退，← → 轉向，空白鍵用道具。</p>' + keyRow +
       '<p>畫面是追尾視角，鏡頭固定在自己身上，毛毛蟲永遠在畫面正中央，地平線永遠是水平的。' +
       '覺得會暈的話，右上角設定裡可以把「鏡頭遠近」調遠一點；' +
-      '「鏡頭跟隨」留在「跟賽道方向」最穩，換成「跟毛毛蟲車頭」會比較跟手但扭的時候畫面會晃。</p></section>' +
+      '鏡頭預設在毛毛蟲正後方、看著牠車頭指的方向，跟一般賽車遊戲一樣 —— ' +
+      '直線就是直的，彎道才跟著轉。覺得會暈的話，設定裡可以把「鏡頭遠近」調遠一點，' +
+      '或是把「鏡頭跟隨」換成「跟賽道方向」。</p></section>' +
 
       '<section class="panel"><h3>蠕動衝刺是這個遊戲的關鍵</h3>' +
       '<p>真的毛毛蟲是靠身體左右波動前進的，這裡也一樣。左右<b>交替</b>按，而且每次換邊的間隔抓在<b>大約半秒</b>，' +
@@ -368,7 +370,8 @@
 
     /* 軌跡初始化：往後補一段，開局就有身體，不會縮成一坨 */
     G.trails = {};
-    G.finishShown = 0;
+    G.bannerKey = '';
+    { const rp = $('room-result'); if (rp) rp.hidden = true; }
     if (G.resultTimer) { root.clearTimeout(G.resultTimer); G.resultTimer = 0; }
     $('finish-banner').hidden = true;
     for (const r of G.state.racers) {
@@ -795,7 +798,7 @@
   const SHAPE = { circle: 0, square: 1, heart: 2, drop: 3, star: 4, diamond: 5, leaf: 6, triangle: 7 };
 
   function drawNameplates(ctx, P) {
-    const v = G.view, st = G.state;
+    const v = G.view;
     ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
@@ -813,10 +816,6 @@
       const fade = Math.max(0, Math.min(1, (1100 - p.f) / 500));
       if (fade <= 0.05) continue;
       const ch = Chars.get(r.char);
-      /* 第一名衝線後，還沒到終點的人頭上會多一個倒數。
-       * 字不用大，但要跟名字分得開 —— 所以另外畫一顆紅色小圓牌。 */
-      const left = (st.graceEnd && !r.finished && !r.ghost)
-        ? Math.max(0, Math.ceil(st.graceEnd - st.raceT)) : -1;
       const label = r.name + (r.ghost ? '（掉線）' : '');
       const w = ctx.measureText(label).width + (G.settings.colorAssist ? 24 : 14);
       ctx.globalAlpha = (r.ghost ? 0.4 : 0.92) * fade;
@@ -830,19 +829,6 @@
       ctx.fillStyle = (r.id === G.meId) ? '#2F6B0C' : '#4A4632';
       ctx.fillText(label, p.x + (G.settings.colorAssist ? 5 : 0), p.y);
 
-      if (left >= 0) {
-        const cy = p.y - 26;
-        const urgent = left <= 3;
-        ctx.fillStyle = urgent ? '#E2564E' : 'rgba(51,48,31,.86)';
-        ctx.beginPath(); ctx.arc(p.x, cy, 11, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = '#fff';
-        ctx.font = '800 13px "Noto Sans TC", system-ui, sans-serif';
-        ctx.fillText(String(left), p.x, cy + 4.5);
-        ctx.font = '700 12px "Noto Sans TC", system-ui, sans-serif';
-      }
       ctx.globalAlpha = 1;
     }
   }
@@ -931,25 +917,62 @@
   /* 自己衝過終點線的那一刻，畫面正中央大大地報名次。
    * 只報一次，之後就掛在那裡直到結算畫面接手（寬限時間裡還看得到別人在跑）。 */
   const FINISH_SUB = { 1: '第一名！', 2: '差一點點', 3: '還不錯', 4: '再來一次' };
+
+  /**
+   * 畫面上方那條大字。
+   *
+   * 10 秒收局倒數是「整場的」倒數，不是掛在某個人身上 ——
+   * 已經衝線的、還在跑的、觀戰的，看到的是同一個數字。
+   * 剛衝線的人先看兩秒自己的名次，再接回倒數。
+   */
+  const RANK_HOLD = 2.0;
+
   function drawFinishBanner() {
     const st = G.state, me = myRacer();
     const el = $('finish-banner');
-    if (!st || !me || !me.finished || st.phase === 'countdown') {
+    if (!st || !me || st.phase === 'countdown') {
       if (!el.hidden) el.hidden = true;
+      G.bannerKey = '';
       return;
     }
-    if (G.finishShown !== me.rank) {
-      G.finishShown = me.rank;
-      $('fb-pos').textContent = '第 ' + me.rank + ' 名';
-      $('fb-sub').textContent = FINISH_SUB[me.rank] || '完賽';
-      el.classList.toggle('win', me.rank === 1);
-      el.hidden = false;
-      /* 重播一次彈出動畫 */
-      el.style.animation = 'none';
-      void el.offsetWidth;
-      el.style.animation = '';
 
+    const grace = st.graceEnd > 0 && st.phase === 'racing';
+    const justFinished = me.finished && (st.raceT - me.finishTime) < RANK_HOLD;
+
+    let key = '', pos = '', sub = '', win = false, urgent = false, beep = false;
+    if (justFinished || (me.finished && !grace)) {
+      key = 'rank' + me.rank;
+      pos = '第 ' + me.rank + ' 名';
+      sub = FINISH_SUB[me.rank] || '完賽';
+      win = me.rank === 1;
+    } else if (grace) {
+      const left = Math.max(0, Math.min(Rules.C.FINISH_GRACE, Math.ceil(st.graceEnd - st.raceT)));
+      key = 'cd' + left;
+      pos = String(left);
+      sub = me.finished ? '秒後結束這一局' : '秒內衝過終點線！';
+      urgent = left <= 3;
+      beep = true;
+    } else {
+      if (!el.hidden) el.hidden = true;
+      G.bannerKey = '';
+      return;
     }
+
+    if (G.bannerKey === key) return;
+    const wasHidden = el.hidden;
+    G.bannerKey = key;
+    $('fb-pos').textContent = pos;
+    $('fb-sub').textContent = sub;
+    el.classList.toggle('win', win);
+    el.classList.toggle('urgent', urgent);
+    el.hidden = false;
+    /* 重播一次彈出動畫：倒數每一秒都彈一下，比較有壓迫感 */
+    el.style.animation = 'none';
+    void el.offsetWidth;
+    el.style.animation = '';
+    /* 倒數每一秒都有聲音，最後三秒換成比較急的那一顆 */
+    if (beep) G.audio.play(urgent ? 'go' : 'count');
+    else if (wasHidden) G.audio.play('finish');
   }
 
   function drawCountdown() {
@@ -1097,12 +1120,37 @@
     $('result-home').textContent = online ? '離開房間' : '回首頁';
     G.audio.stopBgm();
     /* 衝線之後先讓畫面停一秒：看得到自己的名次、終點線、還有誰沒跑完，
-     * 再切到結算。收局的瞬間就換頁的話，那一格名次根本來不及看。 */
+     * 再離開賽道畫面。收局的瞬間就換頁的話，那一格名次根本來不及看。 */
     if (G.resultTimer) root.clearTimeout(G.resultTimer);
     G.resultTimer = root.setTimeout(() => {
       G.resultTimer = 0;
+      /* 線上不跳到獨立的結算頁 —— 成績直接畫在房間裡，
+       * 人還在房間、聊天室還在、大家可以直接再按準備開下一局。
+       * 想看完整統計再按「看詳細統計」。 */
+      if (G.mode === 'online' && root.Online) {
+        paintRoomResult(G.lastResults);
+        root.Online.backToRoom();
+        return;
+      }
       show('result');
     }, 1000);
+  }
+
+  /** 把上一局的名次畫進房間的面板 */
+  function paintRoomResult(results) {
+    const panel = $('room-result');
+    if (!panel) return;
+    if (!results || !results.length) { panel.hidden = true; return; }
+    let html = '';
+    for (const r of results) {
+      html += '<li class="' + (r.id === G.meId ? 'me' : '') + '">' +
+        '<span class="pos">' + r.rank + '</span>' +
+        root.Render.wormSvg(Chars.get(r.char), 30) +
+        '<span><span class="rname">' + escapeHtml(r.name) + '</span></span>' +
+        '<span class="rtime">' + (r.finished ? r.time.toFixed(2) + 's' : '未完賽') + '</span></li>';
+    }
+    $('room-result-list').innerHTML = html;
+    panel.hidden = false;
   }
 
   /* ================================================================
@@ -1167,6 +1215,8 @@
       if (G.mode === 'online' && root.Online) root.Online.leave();
       show('home');
     });
+    const moreBtn = $('room-result-more');
+    if (moreBtn) moreBtn.addEventListener('click', () => show('result'));
     $('rotate-ok').addEventListener('click', hideRotateTip);
     $('sum-toggle').addEventListener('click', () => {
       const body = $('sum-body');

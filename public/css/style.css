@@ -381,7 +381,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .finish-banner {
   position: absolute; inset: 0; z-index: 21;
   display: grid; justify-items: center; align-content: start; gap: 2px;
-  padding-top: 20%;
+  padding-top: 13%;
   pointer-events: none; text-align: center;
   animation: finishPop .45s cubic-bezier(.2, 1.5, .4, 1);
 }
@@ -391,12 +391,13 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   color: #fff; text-shadow: 0 4px 0 rgba(0,0,0,.22), 0 0 18px rgba(255,213,74,.7);
 }
 .finish-banner.win .fb-pos { color: #FFE9A8; }
+.finish-banner.urgent .fb-pos { color: #FFD3CF; text-shadow: 0 4px 0 rgba(0,0,0,.24), 0 0 20px rgba(226,86,78,.85); }
 .finish-banner .fb-sub {
   font-size: clamp(.8rem, 2.4vw, 1.1rem); font-weight: 800;
   color: #fff; text-shadow: 0 2px 0 rgba(0,0,0,.26);
 }
 /* 矮畫面（手機橫向）再往上收一點，不然還是會碰到毛毛蟲 */
-@media (max-height: 520px) { .finish-banner { padding-top: 13%; } }
+@media (max-height: 520px) { .finish-banner { padding-top: 9%; } }
 @keyframes finishPop {
   0%   { transform: scale(.4); opacity: 0; }
   60%  { transform: scale(1.06); opacity: 1; }
@@ -472,6 +473,11 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .stats li { display: flex; }
 .stats li span { margin-left: auto; font-weight: 800; }
 .result-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+.result-list.compact li { min-height: 40px; padding: 4px 8px; font-size: .85em; }
+.result-list.compact svg { width: 30px; height: 30px; }
+.result-list.compact .rlap { display: none; }
+.room-result { order: -1; }
+
 .record-badge { background: #FFE9A8; border-radius: 999px; padding: 1px 8px; font-size: .72em; font-weight: 800; color: #8A5C08; }
 
 /* ---------- Modal ---------- */
