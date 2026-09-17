@@ -112,7 +112,66 @@ ok('鏡頭用平滑過的行進方向退到後面', /cam\.h/.test(app));
 ok('鏡頭位置與偏航用同一個軸線（毛毛蟲永遠釘在畫面正中央）',
   /G\.cam\.a = G\.cam\.h/.test(app) && /Math\.cos\(G\.cam\.h\) \* back/.test(app));
 ok('鏡頭位置不做額外平滑（不然毛毛蟲會忽大忽小）', !/G\.cam\.x \+=/.test(app));
-ok('鏡頭旋轉有限速', /CAM_MAX_RATE/.test(app));
+ok('鏡頭旋轉有限速', /stepCamYaw/.test(app) && Render.CAM_YAW.maxRate > 0);
+
+/* ---------- 鏡頭阻尼器：過彎時的行為 ---------- */
+{
+  const Y = Render.CAM_YAW;
+  const DT = 1 / 60;
+  const un = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+
+  /* 1. 一路右彎：轉速不能超過上限（落後不多的時候） */
+  let cam = { h: 0, rate: 0 }, target = 0, over = 0, maxLag = 0;
+  for (let i = 0; i < 600; i++) {
+    target += 0.6 * DT;                      /* 賽道以 0.6 弧度／秒轉 */
+    const before = cam.h;
+    Render.stepCamYaw(cam, target, DT, 0.30);
+    const rate = Math.abs(un(cam.h - before)) / DT;
+    maxLag = Math.max(maxLag, Math.abs(un(target - cam.h)));
+    if (i > 60 && rate > Y.maxRate * 1.02 && Math.abs(un(target - cam.h)) < Y.lagMax) over++;
+  }
+  ok('定速過彎時轉速不超過上限', over === 0, over + ' 幀超速');
+  ok('定速過彎時不會愈落愈遠', maxLag < 1.2, '最多落後 ' + (maxLag * 180 / Math.PI).toFixed(0) + ' 度');
+
+  /* 2. S 彎：目標來回擺，鏡頭永遠不可以往離目標更遠的方向轉 */
+  cam = { h: 0, rate: 0 };
+  let wrongWay = 0, overshoot = 0;
+  for (let i = 0; i < 1200; i++) {
+    const t = i * DT;
+    target = Math.sin(t * 1.6) * 0.9;        /* 連續 S 彎 */
+    const dh = un(target - cam.h);
+    const before = cam.h;
+    Render.stepCamYaw(cam, target, DT, 0.30);
+    const move = un(cam.h - before);
+    if (Math.abs(dh) > 0.02 && Math.abs(move) > 1e-9 && move * dh < 0) wrongWay++;
+    if (Math.abs(move) > Math.abs(dh) + 1e-9) overshoot++;
+  }
+  ok('S 彎時鏡頭不會往反方向轉', wrongWay === 0, wrongWay + ' 幀轉錯邊');
+  ok('鏡頭不會一次轉過頭', overshoot === 0, overshoot + ' 幀衝過頭');
+
+  /* 3. 髮夾：落後很多時上限要放寬，不然永遠追不上 */
+  cam = { h: 0, rate: 0 };
+  for (let i = 0; i < 240; i++) Render.stepCamYaw(cam, 2.4, DT, 0.30);
+  ok('落後很多時追得回來', Math.abs(un(2.4 - cam.h)) < 0.05,
+    '還差 ' + (Math.abs(un(2.4 - cam.h)) * 180 / Math.PI).toFixed(1) + ' 度');
+
+  /* 4. 到位之後要停住，不可以在死區裡來回晃 */
+  cam = { h: 0, rate: 0 };
+  for (let i = 0; i < 300; i++) Render.stepCamYaw(cam, 0.5, DT, 0.30);
+  const settled = cam.h;
+  for (let i = 0; i < 60; i++) Render.stepCamYaw(cam, 0.5, DT, 0.30);
+  ok('停下來之後不再抖', Math.abs(cam.h - settled) < 1e-6 && Math.abs(cam.rate) < 1e-6);
+
+  /* 5. 跨過 ±180 度不可以整個翻半圈 */
+  cam = { h: Math.PI - 0.05, rate: 0 };
+  let flip = 0;
+  for (let i = 0; i < 120; i++) {
+    const before = cam.h;
+    Render.stepCamYaw(cam, -Math.PI + 0.05, DT, 0.30);
+    if (Math.abs(un(cam.h - before)) > 0.2) flip++;
+  }
+  ok('跨過 ±180 度不會翻半圈', flip === 0 && Math.abs(un(cam.h - (-Math.PI + 0.05))) < 0.05);
+}
 ok('太近的對手與場景物件會淡出或不畫', /淡出/.test(app));
 ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(app) && /G\.lite/.test(app));
 

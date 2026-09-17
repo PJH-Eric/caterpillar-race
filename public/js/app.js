@@ -610,20 +610,8 @@
   const CAM_YAW_LERP = { track: 0.16, chase: 0.30 };
   const CAM_POS_LERP = 0.10;     /* 位置的跟隨速度，慢一點才不會被蠕動帶著抖 */
 
-  /* 鏡頭轉動的阻尼 —— 會暈的原因不是「轉」，是轉得又快又急又停不住。
-   * 賽道現在很寬，鏡頭沒必要每個彎都整個甩過去：讓毛毛蟲在畫面裡歪個
-   * 二三十度，前面的路一樣看得清清楚楚，畫面卻穩很多。
-   *   CAM_MAX_RATE  每秒最多轉幾弧度（0.44 ≈ 25 度／秒）
-   *   CAM_RATE_LERP 轉速本身也平滑，起轉、收轉都是漸進的，不會突然開始或突然停
-   *   CAM_LAG_MAX   鏡頭最多落後行進方向幾弧度（0.50 ≈ 29 度）；超過才准轉快一點
-   *   CAM_LAG_BOOST 超過之後每多一弧度，轉速上限放寬幾倍（連續髮夾才跟得上）
-   *   CAM_DEAD      角差小於這個就完全不轉，殘餘的微抖直接消掉
-   */
-  const CAM_MAX_RATE = 0.44;
-  const CAM_RATE_LERP = 0.085;
-  const CAM_LAG_MAX = 0.50;
-  const CAM_LAG_BOOST = 3.5;
-  const CAM_DEAD = 0.014;
+  /* 鏡頭轉動的阻尼住在 Render.CAM_YAW / Render.stepCamYaw（放那裡測試才跑得到）。
+   * CAM_YAW_LERP 決定「想要的轉速是角差的幾分之幾」，阻尼器再把它限速、平滑。 */
 
   function camView() { return CAM_VIEWS[G.settings.zoomLevel] || CAM_VIEWS[1]; }
 
@@ -724,29 +712,16 @@
     /* 鏡頭的「軸線」：鏡頭沿著這個方向退到毛毛蟲後面，而且就看著這個方向。
      * 因為位置與偏航用的是同一個角度，毛毛蟲一定會落在畫面正中央 ——
      * 不管是過彎、被撞、還是倒退，視角都固定在自己身上。 */
-    let axis = camTargetAngle(me, snapTo);
-    let dh = axis - G.cam.h;
-    while (dh > Math.PI) dh -= Math.PI * 2;
-    while (dh < -Math.PI) dh += Math.PI * 2;
+    const axis = camTargetAngle(me, snapTo);
     if (snapTo || G.settings.reduceMotion) {
       G.cam.h = axis;
       G.camRate = 0;
     } else {
       const lerp = CAM_YAW_LERP[G.settings.camMode] || CAM_YAW_LERP.track;
-      /* 想要的轉速（弧度／秒）：把角差換算成「照這個速度轉多久會補完」 */
-      let want = Math.abs(dh) < CAM_DEAD ? 0 : dh * lerp / Math.max(dt, 1 / 240);
-      /* 轉速上限：平常慢慢轉；只有鏡頭落後車頭太多（連續髮夾）才放寬 */
-      const lag = Math.abs(dh);
-      let cap = CAM_MAX_RATE;
-      if (lag > CAM_LAG_MAX) cap *= 1 + (lag - CAM_LAG_MAX) * CAM_LAG_BOOST;
-      if (want > cap) want = cap; else if (want < -cap) want = -cap;
-      /* 轉速本身再平滑一次，畫面才不會突然開始轉、又突然煞住 */
-      const rate = G.camRate || 0;
-      G.camRate = rate + (want - rate) * CAM_RATE_LERP;
-      G.cam.h += G.camRate * dt;
+      const yaw = root.Render.stepCamYaw({ h: G.cam.h, rate: G.camRate || 0 }, axis, dt, lerp);
+      G.cam.h = yaw.h;
+      G.camRate = yaw.rate;
     }
-    if (G.cam.h > Math.PI) G.cam.h -= Math.PI * 2;
-    if (G.cam.h < -Math.PI) G.cam.h += Math.PI * 2;
 
     /* 位置直接算出來，不做額外的跟隨平滑 —— 平滑會讓鏡頭被拖在後面，
      * 毛毛蟲就忽大忽小，旁邊的對手還會比自己大顆。平滑做在 cam.h 上就夠了。 */

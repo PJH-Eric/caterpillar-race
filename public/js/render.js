@@ -291,6 +291,60 @@
     ctx.restore();
   }
 
+  /* ================================================================
+   *  鏡頭偏航的阻尼器（放在這裡是為了讓測試可以直接跑它）
+   *
+   *  會暈的原因不是「轉」，是轉得又快又急又停不住。賽道現在很寬，鏡頭沒必要
+   *  每個彎都整個甩過去：讓毛毛蟲在畫面裡歪個二三十度，前面的路一樣看得清楚，
+   *  畫面卻穩很多。
+   *
+   *  三條規則，缺一個過彎就會怪：
+   *    1. 轉速有上限，而且轉速本身也是平滑的（起轉、收轉都漸進）。
+   *    2. 要反方向轉的時候必須馬上跟上 —— 慢慢收的話鏡頭會繼續往錯的方向
+   *       再轉半秒，S 彎、髮夾出彎就會覺得鏡頭在亂轉。
+   *    3. 絕不往離目標更遠的方向轉，也絕不一次轉過頭。
+   * ================================================================ */
+  const CAM_YAW = {
+    maxRate: 0.44,      /* 每秒最多轉幾弧度（約 25 度／秒） */
+    rateLerp: 0.085,    /* 轉速的平滑 */
+    rateFlip: 0.42,     /* 要反方向轉時改用這個，快很多 */
+    lagMax: 0.50,       /* 落後目標超過這麼多弧度（約 29 度）才放寬上限 */
+    lagBoost: 3.5,      /* 超過之後每多一弧度，上限放寬幾倍 */
+    dead: 0.014,        /* 角差小於這個就完全不轉，殘餘微抖直接消掉 */
+    follow: 0.30        /* 想要的轉速＝角差的幾分之幾（換算成每秒） */
+  };
+
+  function wrapPi(a) {
+    while (a > Math.PI) a -= Math.PI * 2;
+    while (a < -Math.PI) a += Math.PI * 2;
+    return a;
+  }
+
+  /**
+   * 把鏡頭角往目標推進一幀。
+   * @param {{h:number, rate:number}} cam 目前的鏡頭角與轉速（會被就地更新）
+   * @param {number} target 目標角度
+   * @param {number} dt 這一幀幾秒
+   * @param {number} [follow] 跟隨強度（預設 CAM_YAW.follow）
+   */
+  function stepCamYaw(cam, target, dt, follow) {
+    const dh = wrapPi(target - cam.h);
+    const step = dt > 0 ? dt : 1 / 60;
+    let want = Math.abs(dh) < CAM_YAW.dead ? 0 : dh * (follow || CAM_YAW.follow) / Math.max(step, 1 / 240);
+    const lag = Math.abs(dh);
+    let cap = CAM_YAW.maxRate;
+    if (lag > CAM_YAW.lagMax) cap *= 1 + (lag - CAM_YAW.lagMax) * CAM_YAW.lagBoost;
+    if (want > cap) want = cap; else if (want < -cap) want = -cap;
+
+    const rate = cam.rate || 0;
+    cam.rate = rate + (want - rate) * (want * rate < 0 ? CAM_YAW.rateFlip : CAM_YAW.rateLerp);
+    if (cam.rate * dh < 0) cam.rate = 0;
+    let move = cam.rate * step;
+    if (Math.abs(move) > Math.abs(dh)) { move = dh; cam.rate = 0; }
+    cam.h = wrapPi(cam.h + move);
+    return cam;
+  }
+
   /** 遠處霧化：地平線附近淡進天空色，遠方才不會是一堆銳利的小三角 */
   function drawFog(ctx, P, theme) {
     const v = P.view, hz = P.horizon;
@@ -1213,6 +1267,7 @@
     AHEAD_NODES, BEHIND_NODES,
     makeCanvas, projector, sampleTrail, wormSvg, segPattern,
     buildScenery, drawProp, drawLeaf, drawWorm3D, drawFace,
-    drawSky, drawGround, drawGroundBands, drawGroundTexture, drawFog, drawSpeedLines, trackFaces, trackDecals, groundBlob, curveAt
+    drawSky, drawGround, drawGroundBands, drawGroundTexture, drawFog, drawSpeedLines, trackFaces, trackDecals, groundBlob, curveAt,
+    CAM_YAW, stepCamYaw
   };
 })(typeof self !== 'undefined' ? self : this);
