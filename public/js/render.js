@@ -399,6 +399,43 @@
     return cam;
   }
 
+  /* ---------- 轉動時的邊緣壓暗 ----------
+   *
+   * 會暈的機制是「周邊視覺的流動」：畫面一轉，眼角的東西刷過去的速度最快，
+   * 而周邊視覺正是負責判斷「我在動」的那一塊。壓暗邊緣把那份訊號砍掉，
+   * 中間看得清楚的區域完全不動 —— 這是模擬器與 VR 的標準做法。
+   *
+   * 相對於調手感的好處是它「不用付代價」：不動轉向、不動速度、
+   * 鏡頭也完全不用落後，鏡頭還是死鎖在車頭上。
+   * 只在真的轉得快的時候才出現，直線上完全看不到。
+   */
+  const SWAY = {
+    from: 0.55,     /* 轉速超過這個（弧度／秒，約 32 度／秒）才開始壓暗 */
+    to: 1.90,       /* 到這個轉速壓到最重（約 109 度／秒，接近滿舵） */
+    max: 0.55       /* 最重的時候邊緣的不透明度 */
+  };
+
+  /**
+   * @param {number} rate 鏡頭現在的轉速（弧度／秒，取絕對值）
+   */
+  function drawSwayShade(ctx, P, rate) {
+    const k = Math.max(0, Math.min(1, (Math.abs(rate) - SWAY.from) / (SWAY.to - SWAY.from)));
+    if (k <= 0.004) return;
+    const v = P.view;
+    /* 中間留一大塊完全不動：內圈半徑跟著畫面短邊走，所以直橫向都一樣 */
+    const short = Math.min(v.w, v.h);
+    const g = ctx.createRadialGradient(
+      v.w * 0.5, v.h * 0.52, short * 0.40,
+      v.w * 0.5, v.h * 0.52, short * 0.92);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.55, 'rgba(0,0,0,' + (0.30 * k).toFixed(3) + ')');
+    g.addColorStop(1, 'rgba(0,0,0,' + (SWAY.max * k).toFixed(3) + ')');
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, v.w, v.h);
+    ctx.restore();
+  }
+
   /**
    * 進隧道壓暗、出隧道回亮。
    *
@@ -1745,7 +1782,8 @@
     AHEAD_NODES, BEHIND_NODES,
     makeCanvas, projector, sampleTrail, wormSvg, segPattern,
     buildScenery, drawProp, drawLeaf, drawWorm3D, drawFace,
-    drawSky, drawGround, drawGroundBands, drawGroundTexture, drawFog, drawTunnelShade, drawSpeedLines, trackFaces, trackDecals, groundBlob, curveAt,
+    drawSky, drawGround, drawGroundBands, drawGroundTexture, drawFog, drawTunnelShade,
+    drawSwayShade, SWAY, drawSpeedLines, trackFaces, trackDecals, groundBlob, curveAt,
     CAM_YAW, stepCamYaw, HEAD_CAM, headCamYaw,
     surfaceColors, mix, shade
   };

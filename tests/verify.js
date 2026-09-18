@@ -684,6 +684,51 @@ group('十、交通標誌');
   ok('隨機賽道也有標誌', Tracks.get('random', 'sign-seed').signs.length > 0);
 }
 
+group('十一、擺動幅度（左右修方向時畫面擺多大）');
+{
+  const C = Rules.C;
+  /* 鏡頭鎖在車頭上，所以「畫面擺多大」就是「車頭擺多大」。
+   * 決定它的是 TURN_ACCEL（角加速度）而不是 TURN（角速度上限）——
+   * 快速左右點放的時候車頭根本來不及到滿舵，上限完全沒有參與。
+   * 這一條是實測結論：TURN 3.15 → 2.35 擺幅完全沒變（58.2 度），
+   * TURN_ACCEL 8.5 → 4.5 才把它砍到 30.9 度。 */
+
+  /** 在直線上以 halfTicks 為半週期左右交替打方向，回傳車頭的峰對峰擺幅（弧度） */
+  function swayOf(halfTicks) {
+    const st = race();
+    run(st, 120);
+    const r = st.racers[0];
+    const a0 = r.angle;
+    let dir = 1, lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < halfTicks * 8; i++) {
+      if (i % halfTicks === 0) dir = -dir;
+      Rules.step(st, { a: { steer: dir, gas: 1, man: 1, use: false } });
+      if (i > halfTicks * 2) {
+        const d = angleDiff(r.angle, a0);
+        lo = Math.min(lo, d); hi = Math.max(hi, d);
+      }
+    }
+    return hi - lo;
+  }
+
+  const deg = r => r * 180 / Math.PI;
+  const fast = deg(swayOf(3));    /* 0.1 秒一次，快速點放 */
+  const mid = deg(swayOf(6));     /* 0.2 秒一次 */
+
+  ok('快速點放時畫面擺幅夠小', fast < 9, fast.toFixed(1) + ' 度');
+  ok('一般左右修方向時畫面擺幅夠小', mid < 36, mid.toFixed(1) + ' 度');
+
+  ok('轉向慣性不會太靈敏（太靈敏一甩就轉一大塊）', C.TURN_ACCEL <= 5.0, C.TURN_ACCEL);
+  /* 也不能太鈍：實測 3.5 會有一張賽道過不了彎 */
+  ok('轉向慣性還夠過彎', C.TURN_ACCEL >= 4.0, C.TURN_ACCEL);
+  /* 回正要比打方向快，鬆手才會自己打直、殘餘的擺動收得掉 */
+  ok('回正比打方向快', C.TURN_RELEASE > C.TURN_ACCEL,
+    C.TURN_RELEASE + ' vs ' + C.TURN_ACCEL);
+  ok('滿舵時間在合理範圍（0.4～0.7 秒，有重量但不遲鈍）',
+    C.TURN / C.TURN_ACCEL > 0.4 && C.TURN / C.TURN_ACCEL < 0.7,
+    (C.TURN / C.TURN_ACCEL).toFixed(2) + ' 秒');
+}
+
 /* ================================================================ */
 console.log('\n規則核心：' + pass + ' 通過，' + fail + ' 失敗');
 process.exit(fail ? 1 : 0);

@@ -201,6 +201,45 @@ ok('鏡頭位置不做額外平滑（不然毛毛蟲會忽大忽小）', !/G\.ca
   const slow = sweep(0, 300);
   ok('不轉方向時鏡頭完全不動', slow.judder < 1e-9 && slow.maxLag < 1e-9);
 
+  /* ---- 轉動時壓暗邊緣：砍周邊視覺的流動，中間不能動 ---- */
+  ok('有轉動時的邊緣壓暗', typeof Render.drawSwayShade === 'function');
+  {
+    const S = Render.SWAY;
+    ok('壓暗有起始與飽和的轉速門檻', S.from > 0 && S.to > S.from, JSON.stringify(S));
+    /* 直線上絕對不能壓暗 —— 那會變成「整場都有一圈黑框」 */
+    let drew = 0;
+    const ctx = {
+      save() {}, restore() {}, fillRect() { drew++; },
+      createRadialGradient() { return { addColorStop() {} }; }
+    };
+    const P = { view: { w: 1280, h: 720 } };
+    Render.drawSwayShade(ctx, P, 0);
+    ok('不轉方向時完全不壓暗', drew === 0, drew);
+    Render.drawSwayShade(ctx, P, S.from * 0.9);
+    ok('轉得慢也不壓暗（一般過彎不該有黑框）', drew === 0, drew);
+    Render.drawSwayShade(ctx, P, S.to);
+    ok('轉得快才壓暗', drew > 0, drew);
+
+    /* 中間要留一大塊完全不動，不然就不是「壓邊緣」而是「整個變暗」 */
+    let inner = null;
+    const ctx2 = {
+      save() {}, restore() {}, fillRect() {},
+      createRadialGradient(x0, y0, r0) { inner = r0; return { addColorStop() {} }; }
+    };
+    Render.drawSwayShade(ctx2, P, S.to);
+    ok('中間留一大塊不壓暗（內圈至少佔短邊三分之一）',
+      inner !== null && inner >= Math.min(P.view.w, P.view.h) * 0.33,
+      '內圈半徑 ' + inner);
+
+    /* 起始門檻要在「一般過彎」之上：實測中位 16°/s、九成 60°/s */
+    const fromDeg = S.from * 180 / Math.PI;
+    ok('壓暗的門檻在一般過彎之上（中位 16 度/秒）', fromDeg > 20,
+      fromDeg.toFixed(0) + ' 度/秒');
+  }
+  ok('壓暗用的是鏡頭實際轉速，不是車頭角速度',
+    app.includes('G.swayRate') && app.includes('G.cam.h - prevH'));
+  ok('壓暗的量有平滑（不然會跟著單幀抖動閃）', app.includes('* 0.22'));
+
   /* 前饋量要跟濾波的時間常數配起來，不然不是落後就是超前 */
   ok('前饋量與濾波時間常數相當',
     Math.abs(Render.HEAD_CAM.lead - Render.HEAD_CAM.tau) < Render.HEAD_CAM.tau * 0.5,

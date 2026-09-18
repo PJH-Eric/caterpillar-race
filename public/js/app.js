@@ -460,6 +460,7 @@
     G.cam = { x: me.x, y: me.y, z: camView().height, a: me.angle, h: me.angle, fov: 1, ready: true };
     G.boostVis = 0;
     G.tunnelVis = 0;
+    G.swayRate = 0;
     G.camDist = 0;
     resize();
     updateCamera(me, 1 / 60, true);
@@ -707,10 +708,25 @@
      * 這一支排在 reduceMotion 前面是故意的：鏡頭本來就不會自己動，
      * headCamYaw 比直接抄車頭角還平順、落後也更小，對會暈的人只有好處。
      * 真正決定「畫面轉多快」的是車本身的轉向速度（Rules.C.TURN），不是這裡。 */
+    const prevH = G.cam.h;
     if (!snapTo) {
       G.cam.h = root.Render.headCamYaw(G.cam.h, axis, me.turnVel, dt);
     } else {
       G.cam.h = axis;
+    }
+
+    /* 鏡頭現在轉多快（弧度／秒）——「轉動時壓暗邊緣」要用。
+     * 量的是鏡頭實際轉了多少而不是 me.turnVel：headCamYaw 濾過一手，
+     * 畫面上看到的轉速跟車頭的角速度不完全一樣，而會暈的是畫面上那個。
+     * 再做一次平滑，不然壓暗會跟著單幀的抖動閃。 */
+    if (snapTo) {
+      G.swayRate = 0;
+    } else {
+      let d = G.cam.h - prevH;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      const now = Math.abs(d) / Math.max(dt, 1 / 240);
+      G.swayRate = (G.swayRate || 0) + (now - (G.swayRate || 0)) * 0.22;
     }
 
     /* 位置直接算出來，不做額外的跟隨平滑 —— 平滑會讓鏡頭被拖在後面，
@@ -852,6 +868,10 @@
     }
 
     if (!G.lite) R.drawSpeedLines(ctx, P, G.boostVis || 0, st.t);
+
+    /* 轉動時壓暗邊緣：砍掉周邊視覺的流動，中間完全不動。
+     * 排在隧道壓暗前面，兩層疊起來（在隧道裡轉彎就是又暗又收邊）。 */
+    R.drawSwayShade(ctx, P, G.swayRate || 0);
 
     /* 隧道壓暗。看的是「鏡頭所在的節點」而不是毛毛蟲的 ——
      * 鏡頭在毛毛蟲後面一百多單位，出洞的瞬間鏡頭還在洞裡，
