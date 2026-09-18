@@ -764,6 +764,66 @@ group('十一、擺動幅度（左右修方向時畫面擺多大）');
     (C.TURN / C.TURN_ACCEL).toFixed(2) + ' 秒');
 }
 
+group('十二、線上預測（predicted 模式）');
+{
+  /* 前端跑的是同一份 rules.js，但它只能預測「物理」——
+   * 圈數與完賽是權威資料，不能自己算。
+   *
+   * 原本會自己算，而且算錯：本地的 cpCount 是從 cp 的變化累加出來的，
+   * 但 cp 每 67ms 會被快照蓋成「延遲前的值」，同一個檢查點就被重複計算。
+   * 實測三圈的比賽裡 HUD 圈數變動了 599 次（應該只有 2 次），
+   * 延遲大一點還會長出 92 個假圈數。 */
+  function twin(laps) {
+    const track = Tracks.get('garden');
+    const opt = {
+      track: track, laps: laps, seed: 's', allowBad: false,
+      racers: [{ id: 'a', kind: 'ai', difficulty: 'normal' }]
+    };
+    return {
+      srv: Rules.createRace(opt),
+      cli: Rules.createRace(Object.assign({}, opt, { predicted: true }))
+    };
+  }
+
+  const t = twin(2);
+  ok('predicted 會記在 state 上', t.cli.predicted === true && t.srv.predicted === false);
+
+  /* 兩邊餵一樣的輸入跑完整場：伺服器會完賽，預測那一份不會自己完賽 */
+  let n = 0;
+  while (t.srv.phase !== 'finished' && n < 30 * 300) {
+    const inp = AI.inputsFor(t.srv);
+    const one = inp.a || { steer: 0, gas: 1, use: false };
+    Rules.step(t.srv, { a: one });
+    Rules.step(t.cli, { a: one });
+    t.cli.events.length = 0;
+    n++;
+  }
+  const sr = t.srv.racers[0], cr = t.cli.racers[0];
+  ok('伺服器那一份會算圈數', sr.lap >= 2, sr.lap);
+  ok('伺服器那一份會完賽', sr.finished);
+  ok('預測那一份不自己算圈數（等快照）', cr.lap === 0, cr.lap);
+  ok('預測那一份不自己完賽（等快照）', !cr.finished);
+  ok('預測那一份不自己累加檢查點', cr.cpCount === 0, cr.cpCount);
+  ok('預測那一份不發圈數／完賽事件',
+    !t.cli.events.some(e => e.type === 'lap' || e.type === 'finish'));
+  /* 但物理要照跑，不然畫面就不是預測而是靜止 */
+  ok('預測那一份的物理照跑（位置有動）',
+    Math.hypot(cr.x - t.cli.starts0x, cr.y - t.cli.starts0y) !== 0 || cr.speed > 0);
+  ok('預測那一份還是會更新 node（畫面要用它決定從哪段畫路）', cr.node > 0, cr.node);
+  /* 兩邊的位置不該差太多 —— 差很多表示物理在預測模式下被改壞了 */
+  ok('預測與權威的位置大致一致', Math.hypot(sr.x - cr.x, sr.y - cr.y) < 200,
+    Math.hypot(sr.x - cr.x, sr.y - cr.y).toFixed(0));
+
+  /* 衝刺賽道的完賽條件吃 cpCount，所以也要確認預測模式不會自己完賽 */
+  const sprint = Rules.createRace({
+    track: Tracks.get('riverrun'), laps: 1, seed: 's', allowBad: false, predicted: true,
+    racers: [{ id: 'a', kind: 'ai', difficulty: 'normal' }]
+  });
+  let m = 0;
+  while (m < 30 * 200) { Rules.step(sprint, AI.inputsFor(sprint)); sprint.events.length = 0; m++; }
+  ok('衝刺賽道的預測那一份也不自己完賽', !sprint.racers[0].finished);
+}
+
 /* ================================================================ */
 console.log('\n規則核心：' + pass + ' 通過，' + fail + ' 失敗');
 process.exit(fail ? 1 : 0);

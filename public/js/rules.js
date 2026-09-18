@@ -231,6 +231,15 @@
       t: 0,                      /* 含倒數的總時間 */
       raceT: 0,                  /* 開跑之後的比賽時間 */
       phase: 'countdown',        /* countdown → racing → finished */
+      /* 前端的本地預測把這個設成 true。
+       *
+       * 預測模式下不算圈數也不算完賽 —— 那兩件事是權威資料，一律以快照為準。
+       * 原本前端會自己算：本地的 cpCount 是從 cp 的變化累加出來的，
+       * 但 cp 每 67ms 會被快照蓋成「延遲前的值」，於是同一個檢查點被重複計算，
+       * cpCount 一路往前漂（實測漂到 9，檢查點總數才 12）。
+       * 結果是 HUD 的圈數跟快照來回打架 —— 三圈的比賽裡圈數變動了 599 次，
+       * 延遲大一點還會長出 92 個假圈數，甚至提早觸發完賽。 */
+      predicted: !!opt.predicted,
       firstFinishAt: 0,
       graceEnd: 0,               /* 第一名完賽後，收局的時間點 */
 
@@ -467,6 +476,13 @@
      * 往回越線只是把檢查點退回去，往前再越一次又算一圈，圈數就被刷出來了。
      * 改成累計之後，來回一次是 +1 -1，剛好抵銷，只有真的繞完一圈才會進位。 */
     const CP = track.checkpoints;
+    /* 預測模式：只更新 node（畫面要用它決定從哪一段開始畫路），
+     * 檢查點、圈數、完賽全部交給快照。 */
+    if (state.predicted) {
+      r.progress = (r.started ? r.lap : -1) * N + r.node;
+      return;
+    }
+
     const cp = Tracks.checkpointOf(track, r.node);
     if (cp === (r.cp + 1) % CP) { r.cp = cp; r.cpCount++; }
     else if (cp === (r.cp - 1 + CP) % CP) { r.cp = cp; r.cpCount--; }

@@ -91,6 +91,8 @@
 
     function attach(raceState, myId, inputReader) {
       state = raceState;
+      /* 本地這一份只是預測用的：圈數與完賽不自己算，一律等快照 */
+      state.predicted = true;
       meId = myId;
       acc = 0; lastSent = 0; lastSnapAt = performance.now();
       if (inputReader) readInput = inputReader;
@@ -125,31 +127,70 @@
     /* 誤差多大就不再慢慢拉、直接對齊 */
     const SNAP_HARD = 70;
     const SNAP_SOFT = 0.30;
+    /* 快照往前推算的上限（秒）。延遲再大也不要推超過這麼多，
+     * 不然對手剛撞牆或剛轉彎時會推到牆裡去。 */
+    const LEAD_MAX = 0.35;
 
     function applySnapshot(msg) {
       if (!state) return;
       const s = msg.s;
       lastSnapAt = performance.now();
 
-      /* 時間與階段一律以伺服器為準，效果的倒數才不會跟別人對不起來 */
-      state.t = s.t;
-      state.raceT = s.raceT;
+      /* 階段與圈數一律以伺服器為準 */
       state.phase = s.phase;
       state.laps = s.laps;
+
+      /* 時間只往前走，不倒退。
+       *
+       * 快照是延遲抵達的，所以 s.t 一定比本地預測的 state.t 小一截。
+       * 原本直接照抄，state.t 就每 67ms 往回跳一次，變成一條鋸齒 ——
+       * HUD 的計時、收局倒數、身體動畫的相位都跟著抖。
+       * 本地與伺服器都用同一個固定步長推進，所以兩邊的差距就是延遲，
+       * 不會愈差愈多；真的差超過半秒（分頁被切走、補跑一大段）才硬對齊。 */
+      const TIME_RESYNC = 0.5;
+      if (s.t > state.t || state.t - s.t > TIME_RESYNC) state.t = s.t;
+      state.raceT = state.t - Rules.C.COUNTDOWN;
+
+      /* 這份快照有多舊：本地預測的時鐘減掉快照的時鐘。
+       *
+       * 兩邊都用同一個固定步長推進，所以這個差就是「封包在路上花的時間」，
+       * 不用另外量 ping。時間那一段已經保證 state.t 只往前走，所以這個值穩定。
+       *
+       * 為什麼要用它：快照描述的是 lag 秒前的世界，而本地預測已經跑到現在。
+       * 直接拿快照的座標來比，本地「本來就該領先的那一段」會被當成誤差 ——
+       * 以基礎速度 150 跑、延遲 264ms 來算就是 40 單位。實測本地與伺服器的
+       * 平均差距 33 單位、尖峰 83～95，而硬對齊的門檻是 70：
+       * 也就是說每隔一陣子就會被硬拉一次，那就是玩家感覺到的「延遲抖動」。
+       *
+       * 所以比之前先把快照按它自己的速度往前推 lag 秒，兩邊才是同一個時刻。 */
+      const lag = Math.max(0, Math.min(LEAD_MAX, state.t - s.t));
 
       for (const sr of s.racers) {
         const r = state.racers.find(x => x.id === sr.id);
         if (!r) continue;
 
+        /* 推算：沿著快照當下的朝向前進。完賽或幽靈的不推（他們不動了）。 */
+        let sx = sr.x, sy = sr.y;
+        if (lag > 0 && !sr.fin && !sr.ghost) {
+          sx += Math.cos(sr.a) * sr.sp * lag;
+          sy += Math.sin(sr.a) * sr.sp * lag;
+        }
+
         const soft = (r.id === meId) ? 0.18 : SNAP_SOFT;
-        const dx = sr.x - r.x, dy = sr.y - r.y;
+        const dx = sx - r.x, dy = sy - r.y;
         const err = Math.hypot(dx, dy);
-        if (err > SNAP_HARD || sr.ghost || sr.fin) {
-          r.x = sr.x; r.y = sr.y; r.angle = sr.a;
+        /* 硬對齊只留給「真的差太多」與幽靈（掉線的人停在原地）。
+         *
+         * 完賽的人本來也在這裡硬對齊，但那會在衝線的瞬間把本地預測領先的
+         * 那一段（約 40 單位）一次拉回來，看起來就是終點線上往後跳一下。
+         * 完賽的人不會再動，所以用一般的漸進校正就會很快收斂，而且是平滑的。 */
+        if (err > SNAP_HARD || sr.ghost) {
+          r.x = sx; r.y = sy; r.angle = sr.a;
         } else {
           r.x += dx * soft;
           r.y += dy * soft;
-          let da = sr.a - r.angle;
+          /* 角度同理，用快照的角速度往前推 */
+          let da = (sr.a + (sr.tv || 0) * lag) - r.angle;
           while (da > Math.PI) da -= Math.PI * 2;
           while (da < -Math.PI) da += Math.PI * 2;
           r.angle += da * soft;

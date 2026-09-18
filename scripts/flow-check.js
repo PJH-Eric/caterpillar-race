@@ -233,6 +233,30 @@ ok('房間人數上限使用客製化下拉選單',
   ok('最後一組亮完還有一段全紅（不然一亮就熄，反應不過來）', step >= 0.6, step.toFixed(2) + ' 秒');
 }
 
+/* ---------- 線上預測與校正 ---------- */
+{
+  const net = code('public/js/net.js');
+  ok('本地那一份標成 predicted（圈數與完賽不自己算）',
+    net.includes('state.predicted = true'));
+
+  /* 快照是延遲抵達的，s.t 一定比本地小 —— 照抄會讓時間每 67ms 往回跳一次 */
+  ok('時間只往前走，不倒退',
+    net.includes('s.t > state.t') && net.includes('TIME_RESYNC'));
+
+  /* 快照描述的是 lag 秒前的世界，不先往前推就會把本地該有的領先當成誤差 */
+  ok('校正前先把快照按延遲往前推算',
+    net.includes('state.t - s.t') && net.includes('LEAD_MAX') &&
+    net.includes('Math.cos(sr.a) * sr.sp * lag'));
+  ok('推算有上限（延遲太大不能一路推下去）', net.includes('LEAD_MAX'));
+  ok('完賽與幽靈不往前推（他們不動了）', net.includes('!sr.fin && !sr.ghost'));
+  ok('角度也跟著推（不然轉彎中的對手會一直落在彎外側）',
+    net.includes('(sr.tv || 0) * lag'));
+
+  /* 衝線那一刻不要硬拉：會把本地領先的那一段一次拉回來，看起來往後跳 */
+  ok('硬對齊只留給差太多與幽靈，完賽的人用漸進校正',
+    net.includes('err > SNAP_HARD || sr.ghost)') && !net.includes('|| sr.fin) {'));
+}
+
 /* ---------- 9. 賽道分頁 ---------- */
 {
   const Tracks = require('../public/js/tracks.js');
