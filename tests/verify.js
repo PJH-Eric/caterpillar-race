@@ -244,9 +244,14 @@ group('三、油門與速度');
   const st = race();
   run(st, 100);
   const r = st.racers[0];
-  /* 按住前進就是基礎速度，沒有任何隱藏加成 */
+  /* 按住前進就是「基礎速度乘上腳下的地形係數」，沒有任何隱藏加成。
+   * 不能直接比 BASE_SPEED —— 賽道上現在有上下坡與水坑，跑一百 tick 之後
+   * 人在哪一種地形上是賽道決定的。 */
   for (let i = 0; i < 90; i++) Rules.step(st, { a: { steer: 0, gas: 1, man: 1, use: false } });
-  ok('按住前進會加速到基礎速度', Math.abs(r.speed - Rules.C.BASE_SPEED) < 3, r.speed.toFixed(1));
+  const surf = Rules.surfaceFor(st, r);
+  const want = Rules.C.BASE_SPEED * Rules.C.SURFACE_SPEED[surf];
+  ok('按住前進會加速到該地形的基礎速度', Math.abs(r.speed - want) < 3,
+    r.speed.toFixed(1) + ' / 應為 ' + want.toFixed(1) + '（地形 ' + surf + '）');
 }
 {
   const st = race();
@@ -259,7 +264,10 @@ group('三、油門與速度');
     Rules.step(st, { a: { steer: dir, gas: 1, man: 1, use: false } });
     peak = Math.max(peak, r.speed);
   }
-  ok('左右交替按不會扭出額外速度', peak <= Rules.C.BASE_SPEED + 1, peak.toFixed(1));
+  /* 上限用下坡算：交替轉向只能證明「沒有多出速度」，
+   * 但人可能正好在下坡上，那本來就比基礎速度快。 */
+  const cap = Rules.C.BASE_SPEED * Rules.C.SURFACE_SPEED[Tracks.SURFACE.DOWN] + 1;
+  ok('左右交替按不會扭出額外速度', peak <= cap, peak.toFixed(1) + ' / 上限 ' + cap.toFixed(1));
   ok('沒有 wiggle 事件了', !st.events.some(e => e.type === 'wiggle'));
 }
 {
@@ -461,6 +469,219 @@ group('七、重現性');
   ok('快照有必要的欄位', 'racers' in snap && 'goo' in snap && 'leaves' in snap && 'phase' in snap);
   ok('快照裡每個人都有名次與圈數',
     snap.racers.every(r => 'rank' in r && 'lap' in r && 'item' in r));
+}
+
+group('八、賽道機制（水坑、上下坡、隧道、捷徑）');
+{
+  const S = Tracks.SURFACE;
+  /* --- 地形係數的相對關係。數值可以調，關係不能壞掉。 --- */
+  const SP = Rules.C.SURFACE_SPEED, GRIP = Rules.C.GRIP;
+  ok('上坡比平路慢', SP[S.UP] < SP[S.TRACK]);
+  ok('下坡比平路快', SP[S.DOWN] > SP[S.TRACK]);
+  ok('水坑比平路慢，但比泥巴好過', SP[S.WATER] < SP[S.TRACK] && SP[S.WATER] > SP[S.MUD]);
+  /* 水坑的懲罰是「滑」不是「慢」——這一條壞掉的話水坑就只是換色的泥巴 */
+  ok('水坑比泥巴滑很多', GRIP[S.WATER] > GRIP[S.MUD] * 3, GRIP[S.WATER] + ' vs ' + GRIP[S.MUD]);
+  ok('水坑比草地還滑', GRIP[S.WATER] > GRIP[S.GRASS]);
+  ok('坡不改抓地力（坡就是純粹的速度）',
+    GRIP[S.UP] === GRIP[S.TRACK] && GRIP[S.DOWN] === GRIP[S.TRACK]);
+  ok('每一種地形都有速度係數與抓地力',
+    Object.keys(S).every(k => SP[S[k]] !== undefined && GRIP[S[k]] !== undefined));
+
+  /* 一對等長的坡是淨扣時間的（調和平均 < 1）——
+   * 反過來的話「一直找坡跑」會比走正路快，賽道設計就毀了 */
+  const harmonic = 2 / (1 / SP[S.UP] + 1 / SP[S.DOWN]);
+  ok('一對上下坡跑起來是淨扣時間，不是免費加速', harmonic < 1,
+    '調和平均 ' + harmonic.toFixed(3));
+}
+{
+  /* --- 真的把毛毛蟲放到各種地形上，看速度收斂到哪 --- */
+  const S = Tracks.SURFACE;
+  function cruiseOn(surface) {
+    const track = Tracks.get('garden', 's');
+    const st = Rules.createRace({ track: track, laps: 1, seed: 's',
+      racers: [{ id: 'a', kind: 'human' }] });
+    const r = st.racers[0];
+    /* 把整張賽道的地形改成指定的那一種，人就一定站在上面 */
+    track.grid.surface.fill(surface);
+    for (let i = 0; i < 260; i++) Rules.step(st, { a: { steer: 0, gas: 1, man: 1, use: false } });
+    return r.speed;
+  }
+  const flat = cruiseOn(S.TRACK);
+  ok('上坡上真的開比較慢', cruiseOn(S.UP) < flat * 0.85, cruiseOn(S.UP).toFixed(0) + ' vs ' + flat.toFixed(0));
+  ok('下坡上真的開比較快', cruiseOn(S.DOWN) > flat * 1.15, cruiseOn(S.DOWN).toFixed(0) + ' vs ' + flat.toFixed(0));
+  ok('水坑裡開比較慢', cruiseOn(S.WATER) < flat * 0.8);
+}
+{
+  /* --- 踏進水坑會發事件，而且只在「踏進去」那一刻發一次 --- */
+  const S = Tracks.SURFACE;
+  const track = Tracks.get('garden', 's');
+  const st = Rules.createRace({ track: track, laps: 1, seed: 's',
+    racers: [{ id: 'a', kind: 'human' }] });
+  /* 先跑過倒數：倒數期間 step 根本不會走到地形那一段 */
+  run(st, 120);
+  track.grid.surface.fill(S.WATER);
+  let splashes = 0;
+  for (let i = 0; i < 90; i++) {
+    Rules.step(st, { a: { steer: 0, gas: 1, man: 1, use: false } });
+    splashes += st.events.filter(e => e.type === 'splash').length;
+  }
+  ok('踩進水坑會發 splash 事件', splashes >= 1, splashes);
+  ok('待在水坑裡不會每一 tick 都發事件', splashes === 1, splashes + ' 次');
+  ok('水坑有記進統計', st.racers[0].stats.splash > 1);
+}
+{
+  /* --- 每張賽道都要有機制，而且上下坡一定成對 --- */
+  const noFeature = [], unpaired = [], outOfRange = [];
+  for (const def of Tracks.TRACKS) {
+    const t = Tracks.build(def);
+    const n = t.nodes.length;
+    if (!t.tunnels.length && !t.slopes.length && !t.water.length) noFeature.push(def.id);
+    const up = t.slopes.filter(s => s.dir > 0).length;
+    const down = t.slopes.filter(s => s.dir < 0).length;
+    if (up !== down) unpaired.push(def.id + '(' + up + '/' + down + ')');
+    /* 區間不能超出節點數 —— 衝刺賽道繞不回去，超出去就是畫在賽道外 */
+    for (const sp of t.slopes.concat(t.tunnels)) {
+      if (t.open && (sp.from < 0 || sp.to >= n)) outOfRange.push(def.id);
+    }
+  }
+  ok('每張賽道至少有一種機制', noFeature.length === 0, noFeature.join(', '));
+  ok('上下坡一定成對出現（不然一圈會淨加速或淨扣速）', unpaired.length === 0, unpaired.join(', '));
+  ok('衝刺賽道的坡與隧道不會超出賽道兩端', outOfRange.length === 0, outOfRange.join(', '));
+}
+{
+  /* --- 同一個 seed 一定長出一樣的賽道（線上對戰兩邊要算出同一張） --- */
+  const a = Tracks.get('random', 'same-seed');
+  const b = Tracks.get('random', 'same-seed');
+  const key = t => JSON.stringify([t.tunnels, t.slopes, t.water.map(w => [w.x | 0, w.y | 0]),
+    t.shortcuts.map(sc => [sc.from, sc.to])]);
+  ok('同一個 seed 的機制佈局完全一樣', key(a) === key(b));
+  const c = Tracks.get('random', 'other-seed');
+  ok('不同 seed 的機制佈局不一樣', key(a) !== key(c));
+}
+{
+  /* --- 捷徑：一定要真的比較短，而且區間方向要對 --- */
+  const bad = [];
+  for (const def of Tracks.TRACKS) {
+    const t = Tracks.build(def);
+    for (const sc of t.shortcuts) {
+      const arc = (sc.to - sc.from) * Tracks.NODE_STEP;
+      const len = sc.nodes.length * Tracks.NODE_STEP;
+      if (len >= arc) bad.push(def.id + ' 捷徑不比正路短');
+      if (!(sc.to > sc.from)) bad.push(def.id + ' 捷徑的區間反了');
+    }
+  }
+  ok('每條捷徑都比它取代的那段正路短', bad.length === 0, bad.slice(0, 3).join('; '));
+}
+
+group('九、城市賽道');
+{
+  const CITY = ['city', 'highway', 'cityNight'];
+  const city = Tracks.TRACKS.filter(t => CITY.indexOf(t.theme) >= 0);
+  ok('城市有五張賽道', city.length === 5, city.length);
+  ok('三張有圈數', city.filter(t => !t.open).length === 3, city.filter(t => !t.open).length);
+  ok('兩張沒有圈數（衝刺）', city.filter(t => t.open).length === 2, city.filter(t => t.open).length);
+  const hw = Tracks.BY_ID.expressway;
+  ok('有一張高速公路', !!hw && hw.theme === 'highway');
+  ok('高速公路是兩圈', hw && hw.laps === 2, hw && hw.laps);
+  ok('高速公路是有圈數的那種', hw && !hw.open);
+  /* 高速公路要真的比較寬 —— 不然叫高速公路只是換個名字 */
+  const wide = id => {
+    const t = Tracks.get(id);
+    return t.nodes.reduce((a, b) => a + b.w, 0) / t.nodes.length;
+  };
+  ok('高速公路比市中心寬', wide('expressway') > wide('downtown'),
+    wide('expressway').toFixed(0) + ' vs ' + wide('downtown').toFixed(0));
+  ok('城市賽道都在「城市」那一頁', city.every(t => Tracks.groupOf(t) === 'city'));
+  ok('每張城市賽道都跑得完', city.every(def => {
+    const track = Tracks.build(def);
+    const st = Rules.createRace({ track: track, laps: track.laps, seed: 's',
+      racers: [{ id: 'a', kind: 'ai', difficulty: 'normal' }] });
+    let n = 0;
+    while (st.phase !== 'finished' && n < 30 * 400) { Rules.step(st, AI.inputsFor(st)); n++; }
+    return st.racers[0].finished;
+  }));
+}
+
+group('十、交通標誌');
+{
+  const KINDS = ['left', 'right', 'sturn', 'tunnel', 'up', 'down', 'water'];
+  const seen = {}, problems = [];
+  let total = 0, minPer = 1e9, maxPer = 0;
+
+  for (const def of Tracks.TRACKS) {
+    const t = Tracks.build(def);
+    const n = t.nodes.length;
+    total += t.signs.length;
+    minPer = Math.min(minPer, t.signs.length);
+    maxPer = Math.max(maxPer, t.signs.length);
+
+    for (const sg of t.signs) {
+      seen[sg.kind] = (seen[sg.kind] || 0) + 1;
+      if (KINDS.indexOf(sg.kind) < 0) problems.push(def.id + ' 有不認得的標誌 ' + sg.kind);
+      /* 一定要在路面外 —— 立在路中央會變成障礙物的錯覺 */
+      if (Tracks.surfaceAt(t, sg.x, sg.y) !== Tracks.SURFACE.GRASS) {
+        problems.push(def.id + ' 的 ' + sg.kind + ' 標誌立在路面上');
+      }
+      /* 一定要在世界範圍內，不然畫不出來 */
+      if (sg.x < t.bounds.minX || sg.x > t.bounds.maxX ||
+          sg.y < t.bounds.minY || sg.y > t.bounds.maxY) {
+        problems.push(def.id + ' 的標誌在世界範圍外');
+      }
+      if (!(sg.node >= 0 && sg.node < n)) problems.push(def.id + ' 標誌的節點超出範圍');
+    }
+
+    /* 隧道標誌一定要在隧道「前面」，不能立在洞裡（立在洞裡等於沒警告） */
+    for (const sg of t.signs.filter(x => x.kind === 'tunnel')) {
+      if (t.inTunnel[sg.node]) problems.push(def.id + ' 的隧道標誌立在隧道裡面');
+    }
+    /* 坡的標誌不能立在「它要警告的那種坡」上面 —— 站在上坡上被告知前面有上坡
+     * 是沒有意義的。反過來「下坡預告立在上坡上」是對的：真實道路的陡降標誌
+     * 本來就立在爬坡快到頂的地方，所以只比同方向。 */
+    for (const sg of t.signs.filter(x => x.kind === 'up' || x.kind === 'down')) {
+      const want = sg.kind === 'up' ? 1 : -1;
+      if (t.slopeAt[sg.node] === want) {
+        problems.push(def.id + ' 的 ' + sg.kind + ' 標誌立在同方向的坡上');
+      }
+    }
+  }
+
+  ok('每張賽道都有交通標誌', minPer > 0, '最少的一張只有 ' + minPer + ' 塊');
+  ok('標誌數量不會多到變成雜訊', maxPer <= 30, '最多的一張有 ' + maxPer + ' 塊');
+  ok('七種標誌全都有用到', KINDS.every(k => seen[k] > 0),
+    KINDS.filter(k => !seen[k]).join(', '));
+  ok('標誌都立在路面外、世界範圍內，而且不在它要警告的東西上面',
+    problems.length === 0, problems.slice(0, 3).join('; '));
+  ok('全部賽道加起來有足夠的標誌', total > 200, total + ' 塊');
+}
+{
+  /* --- 左右轉標誌指的方向必須跟賽道實際轉的方向一致 ---
+   * 這是整組標誌裡唯一「指錯會害到玩家」的地方，所以逐塊驗。 */
+  const wrong = [];
+  for (const def of Tracks.TRACKS) {
+    const t = Tracks.build(def);
+    const nodes = t.nodes, n = nodes.length;
+    const at = i => nodes[t.open ? Math.max(0, Math.min(n - 1, i)) : ((i % n) + n) % n];
+    for (const sg of t.signs) {
+      if (sg.kind !== 'left' && sg.kind !== 'right') continue;
+      /* 從標誌往前找它在警告的那個彎，量賽道實際往哪邊轉 */
+      let turn = 0;
+      for (let k = 6; k < 34; k++) {
+        const a = at(sg.node + k - 4), b = at(sg.node + k + 4);
+        turn += a.tx * b.ty - a.ty * b.tx;
+      }
+      const actual = turn >= 0 ? 'left' : 'right';
+      if (actual !== sg.kind) wrong.push(def.id + '@' + sg.node + ' 寫 ' + sg.kind + ' 實際 ' + actual);
+    }
+  }
+  ok('左右轉標誌指的方向跟賽道實際轉向一致', wrong.length === 0,
+    wrong.length + ' 塊指錯：' + wrong.slice(0, 3).join('; '));
+}
+{
+  /* 同一個 seed 的標誌要一模一樣（線上對戰兩邊看到的牌子必須相同） */
+  const key = t => JSON.stringify(t.signs.map(s => [s.kind, s.node, s.x | 0, s.y | 0]));
+  ok('同一個 seed 的標誌完全一樣',
+    key(Tracks.get('random', 'sign-seed')) === key(Tracks.get('random', 'sign-seed')));
+  ok('隨機賽道也有標誌', Tracks.get('random', 'sign-seed').signs.length > 0);
 }
 
 /* ================================================================ */

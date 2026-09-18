@@ -245,7 +245,18 @@
     </div>
   </div>
 
-  <div class="countdown" id="countdown" hidden aria-live="assertive"></div>
+  <div class="countdown" id="countdown" hidden>
+    <!-- 起跑燈架：五組燈柱，每組上下兩顆紅燈（跟一般賽車的燈架一樣）。
+         一組一組亮起來，五組全亮之後「同時熄滅」＝開跑。 -->
+    <div class="cd-gantry" id="cd-gantry" aria-hidden="true">
+      <div class="cd-pod" data-pod="1"><i></i><i></i></div>
+      <div class="cd-pod" data-pod="2"><i></i><i></i></div>
+      <div class="cd-pod" data-pod="3"><i></i><i></i></div>
+    </div>
+    <div class="cd-go" id="cd-go" hidden>開跑！</div>
+    <!-- 燈號對讀螢幕的人沒有意義，另外播報一份文字 -->
+    <span class="cd-sr" id="cd-sr" aria-live="assertive"></span>
+  </div>
   <!-- 自己衝過終點線的那一刻，畫面正中央大大地報名次 -->
   <div class="finish-banner" id="finish-banner" hidden aria-live="assertive">
     <span class="fb-pos" id="fb-pos"></span>
@@ -305,10 +316,17 @@
             <option value="track">跟賽道方向（比較不容易暈）</option>
           </select>
         </label>
+        <label class="row"><span>鏡頭轉動速度</span>
+          <select id="set-camspeed">
+            <option value="0">慢一點（最不容易暈）</option>
+            <option value="1">普通</option>
+            <option value="2">快一點（畫面最貼車頭）</option>
+          </select>
+        </label>
         <label class="row"><span>鏡頭遠近</span>
           <select id="set-zoom"><option value="0">近一點</option><option value="1">普通</option><option value="2">遠一點（看得到更多前方）</option></select>
         </label>
-        <p class="hint">「鎖定車頭」最像一般賽車，畫面完全由你的方向決定；覺得暈就改成「跟賽道方向」，再把「鏡頭遠近」調遠一點。</p>
+        <p class="hint">「鎖定車頭」最像一般賽車，畫面完全由你的方向決定。轉彎會暈的話先把「鏡頭轉動速度」調慢，再不行就改成「跟賽道方向」，並把「鏡頭遠近」調遠一點。</p>
       </section>
       <section class="set-group">
         <h3><i data-icon="see"></i>看得清楚</h3>

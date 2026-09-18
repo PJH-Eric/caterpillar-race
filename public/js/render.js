@@ -316,29 +316,55 @@
   /**
    * head 模式的鏡頭偏航 ——「車頭指哪，畫面就看哪」。
    *
-   * 跟 stepCamYaw 完全相反：不限速、不前瞻、不看行進方向，目標就是車頭角本身，
+   * 跟 stepCamYaw 不一樣的是：不前瞻、不看行進方向，目標就是車頭角本身，
    * 所以鏡頭永遠不會自己轉，畫面只有在玩家轉方向的時候才跟著轉。
    *
-   * 只做兩件事，而且兩件都是為了「畫面是 60Hz」而不是為了跟隨：
+   * 三件事：
    *   1. 一階濾波（時間常數 tau）—— 物理跑 30Hz、畫面畫 60Hz，直接把車頭角抄過來的話
    *      畫面轉動就是一格一格的（打死方向時一步 4.8 度，看得出來在頓）。
    *   2. 用角速度做前饋（lead）—— 濾波本來會讓鏡頭落後，但車頭的角速度是已知的
    *      （turnVel），補上去剛好把落後抵銷掉。實測落後比直接抄還小
    *      （最多 0.9 度 vs 2.4 度），同時平順五倍。
+   *   3. 轉速上限（maxRate）—— 會暈的是這個。實際開起來車頭角速度的分布是
+   *      中位 16°/s、九成 65°/s、九九成 114°/s、最大 140°/s：一般過彎其實很慢，
+   *      是最上面那一成在甩。所以限速只砍尖峰，九成的時間根本碰不到上限，
+   *      「畫面鎖在車頭上」的手感不會被動到。
+   *
+   * 限速一定要配 lagMax／lagBoost：髮夾彎一路打死方向的話，鏡頭會愈落愈後面
+   * 而且永遠追不回來。落後超過 lagMax 就把上限放寬，落後才會停在一個定值
+   * （看起來就像在甩尾，不像鏡頭壞掉）。
    */
-  const HEAD_CAM = { tau: 0.05, lead: 0.055 };
+  const HEAD_CAM = {
+    tau: 0.05,
+    lead: 0.055,
+    maxRate: 0.95,     /* 每秒最多轉幾弧度（約 54 度／秒），砍掉最快的那一成 */
+    lagMax: 0.35,      /* 落後超過這麼多弧度（20 度）才放寬上限 */
+    lagBoost: 5.0      /* 超過之後每多一弧度，上限放寬幾倍 */
+  };
+
+  /** 鏡頭轉動速度的三段，對應設定裡的「鏡頭轉動速度」 */
+  const HEAD_CAM_RATE = [0.62, 0.95, 1.70];   /* 約 36／54／97 度／秒 */
 
   /**
    * @param {number} h 目前的鏡頭角
    * @param {number} angle 車頭角
    * @param {number} turnVel 車頭的角速度（弧度／秒）
    * @param {number} dt 這一幀幾秒
+   * @param {number} [maxRate] 轉速上限（弧度／秒），不給就用 HEAD_CAM.maxRate
    * @returns {number} 這一幀的鏡頭角
    */
-  function headCamYaw(h, angle, turnVel, dt) {
+  function headCamYaw(h, angle, turnVel, dt, maxRate) {
+    const step = dt > 0 ? dt : 1 / 60;
     const target = angle + (turnVel || 0) * HEAD_CAM.lead;
-    const k = 1 - Math.exp(-Math.max(dt, 0) / HEAD_CAM.tau);
-    return wrapPi(h + wrapPi(target - h) * k);
+    const dh = wrapPi(target - h);
+    let move = dh * (1 - Math.exp(-step / HEAD_CAM.tau));
+
+    const lag = Math.abs(dh);
+    let cap = (maxRate > 0 ? maxRate : HEAD_CAM.maxRate) * step;
+    if (lag > HEAD_CAM.lagMax) cap *= 1 + (lag - HEAD_CAM.lagMax) * HEAD_CAM.lagBoost;
+    if (move > cap) move = cap; else if (move < -cap) move = -cap;
+
+    return wrapPi(h + move);
   }
 
   function wrapPi(a) {
@@ -372,6 +398,37 @@
     return cam;
   }
 
+  /**
+   * 進隧道壓暗、出隧道回亮。
+   *
+   * 畫在所有東西的最上面，是一層四角壓得比中間重的暗角 ——
+   * 平均壓暗整個畫面只會讓人覺得「螢幕變暗了」，
+   * 四角重、中間輕才讀得出「我在一個管子裡，光從前面來」。
+   *
+   * @param {number} k 0＝完全在洞外，1＝完全在洞裡（呼叫端自己做平滑）
+   */
+  function drawTunnelShade(ctx, P, theme, k) {
+    if (k <= 0.004) return;
+    const v = P.view;
+    const SC = surfaceColors(theme);
+    ctx.save();
+    /* 底色：整體壓一層，量不大 */
+    ctx.globalAlpha = 0.34 * k;
+    ctx.fillStyle = SC.roof;
+    ctx.fillRect(0, 0, v.w, v.h);
+    /* 暗角：中間留亮，越往外越重 */
+    const g = ctx.createRadialGradient(
+      v.w * 0.5, P.horizon + v.h * 0.06, Math.min(v.w, v.h) * 0.12,
+      v.w * 0.5, P.horizon + v.h * 0.06, Math.max(v.w, v.h) * 0.78);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.28)');
+    g.addColorStop(1, 'rgba(0,0,0,0.72)');
+    ctx.globalAlpha = k;
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, v.w, v.h);
+    ctx.restore();
+  }
+
   /** 遠處霧化：地平線附近淡進天空色，遠方才不會是一堆銳利的小三角 */
   function drawFog(ctx, P, theme) {
     const v = P.view, hz = P.horizon;
@@ -391,6 +448,62 @@
    *  相鄰段用兩種色階交替，跑起來才看得出速度與距離。
    * ================================================================ */
 
+  /* ---------- 新地形的配色 ----------
+   *
+   * 水坑、上下坡、隧道的顏色不寫進 themes/tracks-art.js，而是從該主題原本的
+   * 路面／岩石／天空色推出來。十二套主題乘五個顏色是六十個值，手挑一輪
+   * 不但煩，而且熔岩、雪地、夜晚那幾套的色調差很多，挑不好就會有主題「破色」。
+   * 推導出來的顏色一定跟該主題同調，之後新增主題也自動就有。
+   * 真的要指定就在主題裡寫同名的鍵，這裡會優先用它。
+   */
+  function hexToRgb(h) {
+    return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  }
+  function toHex(c) {
+    return '#' + c.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+  }
+  /** a 與 b 依 t 混合（t=0 全 a，t=1 全 b） */
+  function mix(a, b, t) {
+    const x = hexToRgb(a), y = hexToRgb(b);
+    return toHex([0, 1, 2].map(i => x[i] + (y[i] - x[i]) * t));
+  }
+  /** 變亮（t>0）或變暗（t<0） */
+  function shade(c, t) {
+    return t >= 0 ? mix(c, '#ffffff', t) : mix(c, '#000000', -t);
+  }
+
+  const surfCache = new WeakMap();
+  function surfaceColors(theme) {
+    let c = surfCache.get(theme);
+    if (c) return c;
+    /* 缺鍵就退回路面色。主題資料少一個鍵不該讓整個賽道畫不出來，
+     * 而且測試會餵只有 road／roadEdge 的假主題進來。 */
+    const road = theme.road || '#c8a070';
+    const pick = (k, fallback) => (typeof theme[k] === 'string' ? theme[k] : fallback);
+    const sky2 = pick('sky2', '#9fd8f5');
+    const boost = pick('boost', '#bfefff');
+    const rock = pick('rock', road);
+    const rockDark = pick('rockDark', shade(road, -0.3));
+    const roadEdge = pick('roadEdge', shade(road, 0.3));
+    c = {
+      /* 水：往主題的天空藍靠，但壓暗一點，才看得出是「積水」不是「亮片」 */
+      water: theme.water || mix(shade(road, -0.35), sky2, 0.72),
+      waterLip: theme.waterLip || mix(boost, '#ffffff', 0.35),
+      /* 上坡壓暗、下坡提亮：坡面迎光背光的直覺，不用真的做高度就讀得出來 */
+      slopeUp: theme.slopeUp || shade(road, -0.22),
+      slopeDown: theme.slopeDown || shade(road, 0.20),
+      /* 箭頭用路面的對比色，才不會糊在路面裡 */
+      slopeUpMark: theme.slopeUpMark || shade(road, -0.48),
+      slopeDownMark: theme.slopeDownMark || shade(roadEdge, 0.35),
+      /* 隧道：牆用岩石色壓暗，頂再更暗 */
+      wall: theme.wall || shade(rock, -0.30),
+      wallDark: theme.wallDark || shade(rockDark, -0.45),
+      roof: theme.roof || shade(rockDark, -0.66)
+    };
+    surfCache.set(theme, c);
+    return c;
+  }
+
   /** 賽道在某節點彎得多兇（決定要不要畫紅白緣石） */
   function curveAt(nodes, i, span, open) {
     const n = nodes.length;
@@ -399,7 +512,15 @@
     return Math.abs(Math.atan2(a.tx * b.ty - a.ty * b.tx, a.tx * b.tx + a.ty * b.ty));
   }
 
-  function makeSegDraw(P, a, b, c, theme, band, corner) {
+  /* 隧道的尺寸（世界單位）。牆站在路肩外一點，頂蓋住整個斷面。
+   * 淨高抓得比鏡頭高度（CAM_VIEWS.height 約 62）高一截，
+   * 不然鏡頭會穿過天花板，畫面上半就破了。 */
+  const TUNNEL_H = 96;
+  const TUNNEL_LIP = 14;
+
+  function makeSegDraw(P, a, b, c, theme, band, corner, feat) {
+    feat = feat || { slope: 0, tunnel: 0 };
+    const SC = surfaceColors(theme);
     const dx = b.x - a.x, dy = b.y - a.y;
     const len = Math.hypot(dx, dy) || 1;
     const nx = -dy / len, ny = dx / len;
@@ -460,15 +581,90 @@
     }
 
     function road(ctx) {
-      quad(ctx, 0, theme.road);
-      join(ctx, 0, theme.road);
+      /* 坡直接換路面色 —— 這是玩家唯一會注意到的提示，不能只靠箭頭，
+       * 箭頭在遠處會小到看不見。 */
+      const fill = feat.slope > 0 ? SC.slopeUp : (feat.slope < 0 ? SC.slopeDown : theme.road);
+      quad(ctx, 0, fill);
+      join(ctx, 0, fill);
+    }
+
+    /**
+     * 坡上的人字箭頭：上坡朝前（要爬上去），下坡也朝前（衝下去），
+     * 用顏色跟開口方向區分 —— 上坡是暗色的「∧」，下坡是亮色的「∨」。
+     */
+    function chevron(ctx) {
+      if (!feat.slope) return;
+      const fa = P.fwd(a.x, a.y);
+      if (fa < NEAR || fa > 900) return;              /* 太遠畫了也看不見，純浪費 */
+      const up = feat.slope > 0;
+      const w = a.w * 0.34;
+      const tip = up ? 1 : -1;                        /* ∧ 或 ∨ */
+      const pts = [
+        { x: a.x - nx * w - dx * 0.30 * tip, y: a.y - ny * w - dy * 0.30 * tip },
+        { x: a.x + dx * 0.34 * tip, y: a.y + dy * 0.34 * tip },
+        { x: a.x + nx * w - dx * 0.30 * tip, y: a.y + ny * w - dy * 0.30 * tip }
+      ];
+      const clipped = clipNear(P, pts);
+      if (clipped.length < 3) return;
+      const sp = clipped.map(p => P.pt(p.x, p.y, 0));
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = up ? SC.slopeUpMark : SC.slopeDownMark;
+      ctx.lineWidth = Math.max(1.5, 7 * sp[1].s);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(sp[0].x, sp[0].y);
+      for (let i = 1; i < sp.length; i++) ctx.lineTo(sp[i].x, sp[i].y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    /**
+     * 隧道：兩側的牆與上面的頂。
+     *
+     * 投影本來就吃得下高度（P.pt 的第三個參數），所以牆就是「把路肩那條線
+     * 從 z=0 拉到 z=TUNNEL_H」的四邊形，頂是兩道牆頂端之間的蓋子。
+     * 畫的順序是牆→頂：頂會蓋住牆的上緣，接縫才不會露出草地的顏色。
+     */
+    function tunnel(ctx) {
+      if (!feat.tunnel) return;
+      const wa = a.w + TUNNEL_LIP, wb = b.w + TUNNEL_LIP;
+      const corners = [
+        [{ x: a.x + nx * wa, y: a.y + ny * wa }, { x: b.x + nx * wb, y: b.y + ny * wb }],
+        [{ x: a.x - nx * wa, y: a.y - ny * wa }, { x: b.x - nx * wb, y: b.y - ny * wb }]
+      ];
+      /* 側牆：左右兩片，右邊那片壓暗一點，看起來才有立體感 */
+      for (let k = 0; k < 2; k++) {
+        const lo = clipNear(P, [corners[k][0], corners[k][1]]);
+        if (lo.length < 2) continue;
+        const p0 = P.pt(lo[0].x, lo[0].y, 0), p1 = P.pt(lo[1].x, lo[1].y, 0);
+        const q0 = P.pt(lo[0].x, lo[0].y, TUNNEL_H), q1 = P.pt(lo[1].x, lo[1].y, TUNNEL_H);
+        ctx.fillStyle = k === 0 ? SC.wall : SC.wallDark;
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
+        ctx.lineTo(q1.x, q1.y); ctx.lineTo(q0.x, q0.y);
+        ctx.closePath(); ctx.fill();
+      }
+      /* 頂：四個角都在 TUNNEL_H 上 */
+      const roof = clipNear(P, [corners[0][0], corners[0][1], corners[1][1], corners[1][0]]);
+      if (roof.length >= 3) {
+        const sp = roof.map(p => P.pt(p.x, p.y, TUNNEL_H));
+        ctx.fillStyle = SC.roof;
+        ctx.beginPath();
+        ctx.moveTo(sp[0].x, sp[0].y);
+        for (let i = 1; i < sp.length; i++) ctx.lineTo(sp[i].x, sp[i].y);
+        ctx.closePath(); ctx.fill();
+      }
     }
 
     return {
-      edge, road,
+      edge, road, chevron, tunnel,
       draw(ctx) {
         edge(ctx);
         road(ctx);
+        chevron(ctx);
+        tunnel(ctx);
       }
     };
   }
@@ -513,12 +709,19 @@
       if (outA && outB) continue;
 
       const C = nodes[wrap(fromNode + i + 2)];
-      const segment = makeSegDraw(P, A, B, C === B ? null : C, theme, Math.floor(ia / 5) % 2, curveAt(nodes, ia, 5, track.open) > 0.14);
+      /* 坡與隧道都是「一整段路」，所以問的是節點而不是座標 */
+      const feat = {
+        slope: track.slopeAt ? track.slopeAt[ia] : 0,
+        tunnel: track.inTunnel ? track.inTunnel[ia] : 0
+      };
+      const segment = makeSegDraw(P, A, B, C === B ? null : C, theme, Math.floor(ia / 5) % 2, curveAt(nodes, ia, 5, track.open) > 0.14, feat);
       out.push({
         f: (fa + fb) / 2,
         draw: segment.draw,
         edge: segment.edge,
-        road: segment.road
+        road: segment.road,
+        chevron: segment.chevron,
+        tunnel: segment.tunnel
       });
     }
   }
@@ -547,6 +750,34 @@
   }
 
   function trackDecals(P, track, theme, state, out) {
+    const SC = surfaceColors(theme);
+    /* 水坑：跟泥巴一樣是貼地的橢圓，但畫法刻意做得不一樣 ——
+     * 泥巴是「糊掉的一坨」，水是「亮邊 ＋ 會反光的面」。
+     * 兩者的懲罰不同（泥巴慢、水打滑），長得像的話玩家分不出來要怕哪一個。 */
+    for (const w of track.water || []) {
+      const it = groundBlob(P, w.x, w.y, w.r, (ctx, x, y, rx, ry) => {
+        const g = ctx.createRadialGradient(x, y - ry * 0.3, rx * 0.1, x, y, rx);
+        g.addColorStop(0, SC.waterLip);
+        g.addColorStop(0.35, SC.water);
+        g.addColorStop(0.88, SC.water);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fill();
+        /* 亮邊：水面跟路面的交界，這一圈是「看起來是水」的關鍵 */
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = SC.waterLip;
+        ctx.lineWidth = Math.max(1, rx * 0.06);
+        ctx.beginPath(); ctx.ellipse(x, y, rx * 0.94, ry * 0.94, 0, 0, TAU); ctx.stroke();
+        /* 兩道反光 */
+        ctx.globalAlpha = 0.42; ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.ellipse(x - rx * 0.3, y - ry * 0.34, rx * 0.3, ry * 0.16, 0, 0, TAU); ctx.fill();
+        ctx.globalAlpha = 0.26;
+        ctx.beginPath(); ctx.ellipse(x + rx * 0.26, y + ry * 0.18, rx * 0.2, ry * 0.11, 0, 0, TAU); ctx.fill();
+        ctx.restore();
+      });
+      if (it) out.push(it);
+    }
     for (const m of track.mud) {
       const it = groundBlob(P, m.x, m.y, m.r, (ctx, x, y, rx, ry) => {
         const g = ctx.createRadialGradient(x, y - ry * 0.2, rx * 0.1, x, y, rx);
@@ -635,7 +866,7 @@
    * ================================================================ */
 
   /** 哪些場景物件是「高的」，要離路邊遠一點 */
-  const TALL = { tree: 1, candycane: 1, lolly: 1, mushroom: 1, glowbud: 1 };
+  const TALL = { tree: 1, candycane: 1, lolly: 1, mushroom: 1, glowbud: 1, building: 1, lamp: 1 };
 
   const PROPS = {
     garden: ['tree', 'bush', 'flower', 'flower', 'bush'],
@@ -649,7 +880,11 @@
     snow: ['tree', 'bush', 'tree', 'bush'],
     bloom: ['flower', 'flower', 'bush', 'flower', 'tree'],
     volcano: ['bush', 'acorn', 'bush', 'tree'],
-    starry: ['glowbud', 'bush', 'flower', 'glowbud', 'tree']
+    starry: ['glowbud', 'bush', 'flower', 'glowbud', 'tree'],
+    /* 城市：大樓為主，夾一點路燈與三角錐當街景 */
+    city: ['building', 'building', 'lamp', 'building', 'cone', 'bush'],
+    cityNight: ['building', 'building', 'lamp', 'building', 'lamp', 'cone'],
+    highway: ['lamp', 'building', 'lamp', 'cone', 'building']
   };
 
   /** 開局沿賽道兩側撒一次，之後每一幀只是投影它們 */
@@ -677,6 +912,10 @@
     }
     /* 石頭同時是障礙物，尺寸來自賽道資料 */
     for (const rk of track.rocks) out.push({ x: rk.x, y: rk.y, kind: 'rock', r: rk.r, h: 1, seed: 0.5 });
+    /* 交通標誌：位置是賽道算好的（路邊固定距離），不用也不能隨機擺 */
+    for (const sg of track.signs || []) {
+      out.push({ x: sg.x, y: sg.y, kind: 'sign', sign: sg.kind, h: 1, seed: 0.5 });
+    }
     return out;
   }
 
@@ -751,6 +990,214 @@
       for (const o of [[-0.52, 0.22, 0.6], [0.52, 0.2, 0.58], [0, -0.32, 0.7], [0, 0.16, 0.78]]) {
         ctx.beginPath(); ctx.arc(bx + crownR * o[0], cy + crownR * o[1], crownR * o[2], 0, TAU); ctx.fill();
       }
+      return;
+    }
+
+    /* 交通標誌：一根桿子 ＋ 菱形警告牌 ＋ 圖示。
+     *
+     * 圖示全部用線條畫在一個正規化的 -1..1 方框裡，再乘上牌子的半徑 ——
+     * 這樣同一組座標在遠近任何距離都對，不用為每個距離調一次。
+     * 牌面永遠正面朝鏡頭（跟其他景物一樣是 billboard）：
+     * 真的把牌子轉向的話，斜著看就只剩一條線，那塊牌子就白立了。 */
+    if (k === 'sign') {
+      const kind = prop.sign || 'left';
+      const postH = H(52);
+      const r = W(26);                      /* 牌子的半徑（菱形的對角線一半） */
+      shadow(W(9), W(3.5));
+
+      /* 桿子 */
+      ctx.strokeStyle = '#8A9199';
+      ctx.lineWidth = Math.max(1.2, W(4));
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx, by - postH);
+      ctx.stroke();
+
+      const cy = by - postH - r * 0.92;
+
+      /* 菱形牌面：黃底黑框，看板的通用語言 */
+      ctx.beginPath();
+      ctx.moveTo(bx, cy - r);
+      ctx.lineTo(bx + r, cy);
+      ctx.lineTo(bx, cy + r);
+      ctx.lineTo(bx - r, cy);
+      ctx.closePath();
+      ctx.fillStyle = '#F7C93E';
+      ctx.fill();
+      ctx.strokeStyle = '#2B2B2B';
+      ctx.lineWidth = Math.max(1, r * 0.13);
+      ctx.stroke();
+
+      if (r < 7) return;                    /* 太遠就只剩一塊黃菱形，圖示畫了也看不到 */
+
+      /* 圖示：座標是 -1..1，乘 r * 0.52 之後畫 */
+      const u = r * 0.52;
+      const X = a => bx + a * u, Y = a => cy + a * u;
+      ctx.strokeStyle = '#2B2B2B';
+      ctx.fillStyle = '#2B2B2B';
+      ctx.lineWidth = Math.max(1, r * 0.15);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+
+      function poly(pts) {
+        ctx.beginPath();
+        ctx.moveTo(X(pts[0][0]), Y(pts[0][1]));
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(X(pts[i][0]), Y(pts[i][1]));
+        ctx.stroke();
+      }
+      /* 箭頭頭：在 (x,y) 朝 dir（單位向量）畫一個實心三角 */
+      function head(x, y, dx, dy) {
+        const h = 0.46, w2 = 0.32;
+        const px = -dy, py = dx;
+        ctx.beginPath();
+        ctx.moveTo(X(x + dx * h), Y(y + dy * h));
+        ctx.lineTo(X(x + px * w2), Y(y + py * w2));
+        ctx.lineTo(X(x - px * w2), Y(y - py * w2));
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      if (kind === 'left' || kind === 'right') {
+        const m = kind === 'left' ? -1 : 1;
+        /* 從底部往上，然後折向左／右 */
+        poly([[0, 1], [0, 0.1], [m * 0.62, -0.5]]);
+        head(m * 0.62, -0.5, m * 0.78, -0.62);
+      } else if (kind === 'sturn') {
+        /* S 形：下面往一邊、上面往另一邊 */
+        ctx.beginPath();
+        ctx.moveTo(X(-0.1), Y(1));
+        ctx.bezierCurveTo(X(-0.1), Y(0.35), X(0.75), Y(0.2), X(0.75), Y(-0.25));
+        ctx.bezierCurveTo(X(0.75), Y(-0.6), X(-0.3), Y(-0.55), X(-0.3), Y(-0.95));
+        ctx.stroke();
+        head(-0.3, -0.95, 0, -1);
+      } else if (kind === 'tunnel') {
+        /* 拱門：半圓 ＋ 兩腳 ＋ 地面 */
+        ctx.beginPath();
+        ctx.arc(X(0), Y(0.1), u * 0.78, Math.PI, 0);
+        ctx.stroke();
+        poly([[-0.78, 0.1], [-0.78, 0.92]]);
+        poly([[0.78, 0.1], [0.78, 0.92]]);
+        poly([[-1, 0.92], [1, 0.92]]);
+      } else if (kind === 'up' || kind === 'down') {
+        /* 坡：一個斜面三角形，上坡往右上、下坡往右下 */
+        const up = kind === 'up';
+        ctx.beginPath();
+        ctx.moveTo(X(-0.9), Y(0.7));
+        ctx.lineTo(X(0.9), Y(0.7));
+        ctx.lineTo(X(up ? 0.9 : -0.9), Y(-0.75));
+        ctx.closePath();
+        ctx.fill();
+      } else if (kind === 'water') {
+        /* 水：三條波浪 */
+        for (let i = 0; i < 3; i++) {
+          const y0 = -0.5 + i * 0.55;
+          ctx.beginPath();
+          ctx.moveTo(X(-0.85), Y(y0));
+          ctx.bezierCurveTo(X(-0.4), Y(y0 - 0.34), X(-0.05), Y(y0 + 0.3), X(0.28), Y(y0));
+          ctx.bezierCurveTo(X(0.5), Y(y0 - 0.2), X(0.7), Y(y0 + 0.16), X(0.9), Y(y0 - 0.04));
+          ctx.stroke();
+        }
+      } else {
+        /* 不認得的種類就畫一個驚嘆號，至少玩家知道「前面有東西」 */
+        poly([[0, -0.85], [0, 0.35]]);
+        ctx.beginPath();
+        ctx.arc(X(0), Y(0.82), Math.max(1, u * 0.17), 0, TAU);
+        ctx.fill();
+      }
+      return;
+    }
+
+    /* 大樓：一個立方體 ＋ 窗戶格子。城市賽道的天際線就靠這個。
+     * 用 prop.seed 決定高矮胖瘦與窗戶亮不亮，所以同一種 kind 撒出去
+     * 不會是一排一模一樣的積木。 */
+    if (k === 'building') {
+      const sd = prop.seed || 0.5;
+      const w = W(30 + sd * 26);
+      const h = H(120 + sd * 150);
+      shadow(w * 1.05, w * 0.3);
+      const left = bx - w / 2;
+      /* 正面與側面：側面壓暗，才有體積感 */
+      const face = theme.rock, side = theme.rockDark;
+      const dep = w * 0.26;
+      ctx.fillStyle = side;
+      ctx.beginPath();
+      ctx.moveTo(left + w, by);
+      ctx.lineTo(left + w + dep, by - h * 0.06);
+      ctx.lineTo(left + w + dep, by - h - h * 0.06);
+      ctx.lineTo(left + w, by - h);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = face;
+      ctx.fillRect(left, by - h, w, h);
+      /* 頂樓收邊 */
+      ctx.fillStyle = side;
+      ctx.fillRect(left, by - h, w, Math.max(1, h * 0.03));
+
+      if (detail) {
+        /* 窗戶：夜晚的主題亮燈，白天是暗色的玻璃 */
+        const lit = theme.night;
+        const cols = Math.max(2, Math.round(w / Math.max(3, W(13))));
+        const rows = Math.max(3, Math.round(h / Math.max(4, H(24))));
+        const gw = w / cols, gh = h / rows;
+        for (let r0 = 0; r0 < rows; r0++) {
+          for (let c0 = 0; c0 < cols; c0++) {
+            /* 固定的偽隨機：同一棟樓每一幀亮的窗戶都一樣，不會閃爍 */
+            const q = ((r0 * 7 + c0 * 13 + Math.floor(sd * 100)) % 10) / 10;
+            if (lit && q > 0.55) ctx.fillStyle = theme.sun;
+            else if (!lit && q > 0.7) ctx.fillStyle = theme.skyLow;
+            else ctx.fillStyle = theme.rockDark;
+            ctx.globalAlpha = lit && q > 0.55 ? 0.85 : 0.5;
+            ctx.fillRect(left + c0 * gw + gw * 0.22, by - h + r0 * gh + gh * 0.22,
+              gw * 0.56, gh * 0.5);
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+      return;
+    }
+
+    /* 路燈：一根桿子加一個燈頭。夜晚主題會發光。 */
+    if (k === 'lamp') {
+      const h = H(84), armW = W(16);
+      shadow(W(8), W(3));
+      ctx.strokeStyle = theme.rockDark;
+      ctx.lineWidth = Math.max(1.2, W(4.5));
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx, by - h);
+      ctx.quadraticCurveTo(bx, by - h - armW * 0.7, bx + armW, by - h - armW * 0.55);
+      ctx.stroke();
+      ctx.fillStyle = theme.night ? theme.sun : theme.roadEdge;
+      ctx.beginPath();
+      ctx.ellipse(bx + armW, by - h - armW * 0.42, Math.max(1.2, W(7)), Math.max(1, W(4)), 0, 0, TAU);
+      ctx.fill();
+      if (detail && theme.night) {
+        ctx.save();
+        ctx.globalAlpha = 0.28;
+        const g = ctx.createRadialGradient(bx + armW, by - h - armW * 0.42, 1,
+          bx + armW, by - h - armW * 0.42, W(34));
+        g.addColorStop(0, theme.sun);
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(bx + armW, by - h - armW * 0.42, W(34), 0, TAU); ctx.fill();
+        ctx.restore();
+      }
+      return;
+    }
+
+    /* 三角錐：矮矮的，可以貼著路邊放 */
+    if (k === 'cone') {
+      const h = H(26), w = W(13);
+      shadow(w * 1.1, w * 0.34);
+      ctx.fillStyle = '#E8763A';
+      ctx.beginPath();
+      ctx.moveTo(bx, by - h);
+      ctx.lineTo(bx + w, by);
+      ctx.lineTo(bx - w, by);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#FDF6EA';
+      ctx.fillRect(bx - w * 0.62, by - h * 0.56, w * 1.24, Math.max(1, h * 0.17));
       return;
     }
 
@@ -1297,7 +1744,8 @@
     AHEAD_NODES, BEHIND_NODES,
     makeCanvas, projector, sampleTrail, wormSvg, segPattern,
     buildScenery, drawProp, drawLeaf, drawWorm3D, drawFace,
-    drawSky, drawGround, drawGroundBands, drawGroundTexture, drawFog, drawSpeedLines, trackFaces, trackDecals, groundBlob, curveAt,
-    CAM_YAW, stepCamYaw, HEAD_CAM, headCamYaw
+    drawSky, drawGround, drawGroundBands, drawGroundTexture, drawFog, drawTunnelShade, drawSpeedLines, trackFaces, trackDecals, groundBlob, curveAt,
+    CAM_YAW, stepCamYaw, HEAD_CAM, HEAD_CAM_RATE, headCamYaw,
+    surfaceColors, mix, shade
   };
 })(typeof self !== 'undefined' ? self : this);

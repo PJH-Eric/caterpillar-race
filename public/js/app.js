@@ -80,6 +80,7 @@
     bind('set-vibrate', 'vibrate', 'check');
     bind('set-sens', 'steerSens', 'select');
     bind('set-cam', 'camMode', 'text');
+    bind('set-camspeed', 'camTurnSpeed', 'select');
     bind('set-zoom', 'zoomLevel', 'select');
     bind('set-motion', 'reduceMotion', 'check');
     bind('set-color', 'colorAssist', 'check');
@@ -111,6 +112,7 @@
     $('set-vibrate').checked = s.vibrate;
     $('set-sens').value = String(s.steerSens);
     $('set-cam').value = s.camMode;
+    $('set-camspeed').value = s.camTurnSpeed;
     $('set-zoom').value = String(s.zoomLevel);
     $('set-motion').checked = s.reduceMotion;
     $('set-color').checked = s.colorAssist;
@@ -463,6 +465,7 @@
     const me = myRacer();
     G.cam = { x: me.x, y: me.y, z: camView().height, a: me.angle, h: me.angle, fov: 1, ready: true };
     G.boostVis = 0;
+    G.tunnelVis = 0;
     G.camDist = 0;
     resize();
     updateCamera(me, 1 / 60, true);
@@ -630,6 +633,7 @@
       else if (e.type === 'wall') { G.audio.play('wall'); buzz(35); }
       else if (e.type === 'bump') { G.audio.play('bump'); }
       else if (e.type === 'goo') { G.audio.play('goo'); toast('被黏住了！'); buzz(40); }
+      else if (e.type === 'splash') { G.audio.play('splash'); buzz(20); }
       else if (e.type === 'hit') { G.audio.play('hit'); toast('中招了！'); buzz(40); }
       else if (e.type === 'blocked') { G.audio.play('blocked'); toast('泡泡幫你擋下來了'); }
       else if (e.type === 'dodge') { toast('飄過去了！'); }
@@ -792,7 +796,9 @@
      * 這一支排在 reduceMotion 前面是故意的：head 模式的鏡頭本來就不會自己動，
      * headCamYaw 比直接抄車頭角還平順、落後也更小，對會暈的人只有好處。 */
     if (!snapTo && G.settings.camMode === 'head') {
-      G.cam.h = root.Render.headCamYaw(G.cam.h, axis, me.turnVel, dt);
+      const R = root.Render;
+      const rate = R.HEAD_CAM_RATE[G.settings.camTurnSpeed] || R.HEAD_CAM.maxRate;
+      G.cam.h = R.headCamYaw(G.cam.h, axis, me.turnVel, dt, rate);
       G.camRate = 0;
     } else if (snapTo || G.settings.reduceMotion) {
       G.cam.h = axis;
@@ -821,6 +827,20 @@
 
     /* 給地面條紋用：鏡頭累積跑過多遠，條紋才會往鏡頭捲過來 */
     G.camDist = (G.camDist || 0) + me.speed * dt;
+
+    /* 隧道：進洞變暗、出洞回亮。用鏡頭的位置查節點，不是毛毛蟲的。
+     * 過渡要平滑 —— 節點是離散的，直接切會在洞口「啪」一下。 */
+    const tr = G.track;
+    let inside = 0;
+    if (tr && tr.inTunnel) {
+      /* 給 me.node 當起點：nodeAt 只搜尋提示附近的一段（-12～+45），
+       * 不給提示的話它從 0 開始找，鏡頭在賽道另一頭時就會查錯節點。
+       * 鏡頭在毛毛蟲後面約九個節點，落在 -12 的範圍內。 */
+      const cn = Tracks.nodeAt(tr, G.cam.x, G.cam.y, me.node);
+      if (cn >= 0) inside = tr.inTunnel[cn] ? 1 : 0;
+    }
+    const lerp = snapTo ? 1 : (inside ? 0.14 : 0.10);   /* 進洞快一點、出洞慢一點 */
+    G.tunnelVis = (G.tunnelVis || 0) + (inside - (G.tunnelVis || 0)) * lerp;
   }
 
   function draw() {
@@ -850,6 +870,11 @@
       if (face.road) face.road(ctx);
       else face.draw(ctx);
     }
+    /* 坡上的人字箭頭要壓在路面上，所以等整條路都畫完才畫 */
+    for (const face of road) if (face.chevron) face.chevron(ctx);
+    /* 隧道的牆與頂是立起來的，由遠到近畫（road 已經排序過）。
+     * 排在毛毛蟲前面：隧道裡的毛毛蟲要蓋在遠處的牆上面。 */
+    for (const face of road) if (face.tunnel) face.tunnel(ctx);
 
     R.drawFog(ctx, P, G.theme);
 
@@ -924,6 +949,11 @@
     }
 
     if (!G.lite) R.drawSpeedLines(ctx, P, G.boostVis || 0, st.t);
+
+    /* 隧道壓暗。看的是「鏡頭所在的節點」而不是毛毛蟲的 ——
+     * 鏡頭在毛毛蟲後面一百多單位，出洞的瞬間鏡頭還在洞裡，
+     * 用毛毛蟲的節點會讓畫面比鏡頭早半秒回亮，看起來像閃一下。 */
+    R.drawTunnelShade(ctx, P, G.theme, G.tunnelVis || 0);
 
     drawNameplates(ctx, P);
     drawMini();
@@ -1155,19 +1185,65 @@
     else if (wasHidden) G.audio.play('finish');
   }
 
+  /* 起跑燈架 ——「一般賽車」的起跑方式。
+   *
+   * 三組燈柱一組一組亮，全亮之後同時熄滅＝開跑。這比數字倒數好讀的地方在於
+   * 「還剩多久」是一眼看得到的量（幾組亮了），不用讀字；
+   * 而且熄燈的那一瞬間是同時發生的，起跑時機很明確。
+   *
+   * 倒數期間 st.t 是從 0 走到 C.COUNTDOWN（不是負的走到 0）。
+   * 時間全部從 C.COUNTDOWN 推算，所以倒數改長改短都不用動這裡：
+   *   第 i 組（1-based）在 t = (i-1) * COUNTDOWN/3 亮起。
+   * 三秒的話就是 0.0 / 1.0 / 2.0，最後留 1 秒三組全亮，然後熄燈。
+   * 那一秒的「全紅」是起跑燈的關鍵節奏，沒有的話最後一組一亮就熄，
+   * 玩家根本反應不過來。三組剛好一組一秒，跟原本的 3-2-1 叫聲同步。 */
+  const CD_PODS = 3;
+
+  /* 熄燈之後燈架還要留在畫面上多久（秒）。
+   * 起跑燈的「開跑」訊號就是五組燈同時熄掉 —— 相位一換就把燈架整個收走的話，
+   * 玩家看到的是「燈架消失」而不是「熄燈」，那個關鍵的一瞬間就沒了。 */
+  const CD_LIGHTS_OUT = 0.7;
+
   function drawCountdown() {
     const st = G.state;
     const el = $('countdown');
-    if (st.phase !== 'countdown') {
-      if (!el.hidden) el.hidden = true;
+    const total = Rules.C.COUNTDOWN;
+    const counting = st.phase === 'countdown';
+    /* raceT 是「開跑後過了幾秒」（倒數期間是負的） */
+    const afterGo = !counting && st.raceT >= 0 && st.raceT < CD_LIGHTS_OUT;
+
+    if (!counting && !afterGo) {
+      if (!el.hidden) {
+        el.hidden = true;
+        /* 收乾淨：下一局開始時燈架不能還留著上一局的亮燈 */
+        setCountdownLights(0);
+        $('cd-go').hidden = true;
+        G.countShown = -1;
+      }
       return;
     }
-    const left = Math.ceil(Rules.C.COUNTDOWN - st.t);
     el.hidden = false;
-    el.textContent = left > 0 ? String(left) : '開跑！';
-    if (left !== G.countShown) {
-      G.countShown = left;
-      if (left > 0) G.audio.play('count');
+
+    const step = total / CD_PODS;
+    const lit = Math.max(0, Math.min(CD_PODS, Math.floor(st.t / step) + 1));
+    const go = !counting || st.t >= total;
+
+    setCountdownLights(go ? 0 : lit);
+    $('cd-go').hidden = !go;
+
+    /* 每多亮一組叫一聲；熄燈那一下不叫（go 事件自己有聲音） */
+    const key = go ? 0 : lit;
+    if (key !== G.countShown) {
+      G.countShown = key;
+      if (!go) G.audio.play('count');
+      $('cd-sr').textContent = go ? '開跑' : ('起跑燈 ' + lit + ' / ' + CD_PODS);
+    }
+  }
+
+  function setCountdownLights(lit) {
+    const pods = $('cd-gantry').children;
+    for (let i = 0; i < pods.length; i++) {
+      pods[i].classList.toggle('on', i < lit);
     }
   }
 

@@ -508,12 +508,52 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 
 .countdown {
   position: absolute; inset: 0; z-index: 20;
-  display: grid; place-items: center;
-  font-size: clamp(4rem, 22vw, 11rem); font-weight: 800;
-  color: #fff; text-shadow: 0 6px 0 rgba(0,0,0,.18);
+  display: grid; place-items: center; align-content: center; gap: 2.5vmin;
   pointer-events: none;
 }
 .countdown[hidden] { display: none; }
+
+/* ---- 起跑燈架 ----
+   尺寸用 vmin：直的橫的、手機平板桌機都是同一組數字，
+   燈架永遠佔畫面短邊的固定比例，不會在橫向變成一條細線。 */
+.cd-gantry {
+  display: flex; gap: 1.8vmin;
+  padding: 2.2vmin 2.6vmin;
+  background: #1C1F24;
+  border: 0.5vmin solid #0E1013;
+  border-radius: 2.2vmin;
+  box-shadow: 0 1.2vmin 0 rgba(0,0,0,.28), inset 0 0 2vmin rgba(0,0,0,.55);
+}
+.cd-pod { display: grid; gap: 1.2vmin; }
+.cd-pod i {
+  display: block;
+  /* 三組燈的燈架比較窄，所以每顆燈可以大一點，遠看更清楚 */
+  width: 9vmin; height: 9vmin;
+  border-radius: 50%;
+  /* 沒亮的燈：暗紅玻璃，看得出「這裡有一顆燈」但明顯是熄的 */
+  background: radial-gradient(circle at 35% 30%, #4A1416, #2A0B0D 70%);
+  box-shadow: inset 0 0 1.2vmin rgba(0,0,0,.8);
+  transition: background .08s linear, box-shadow .08s linear;
+}
+/* 亮起來的燈：紅玻璃 ＋ 外溢的光暈 */
+.cd-pod.on i {
+  background: radial-gradient(circle at 35% 30%, #FFE2DE, #FF3B30 45%, #C1100A 100%);
+  box-shadow: 0 0 2.4vmin rgba(255,59,48,.85), 0 0 5vmin rgba(255,59,48,.45),
+              inset 0 0 0.8vmin rgba(255,255,255,.35);
+}
+.cd-go {
+  font-size: clamp(2.4rem, 12vw, 6.5rem); font-weight: 800;
+  color: #fff; text-shadow: 0 5px 0 rgba(0,0,0,.2), 0 0 3vmin rgba(88,240,120,.85);
+  animation: cdGo .3s cubic-bezier(.2, 1.6, .4, 1);
+}
+.cd-go[hidden] { display: none; }
+@keyframes cdGo { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* 燈架本身就是一個「越來越多燈亮」的動畫，減少動態時不需要再收斂 */
+.cd-sr {
+  position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
 
 /* 衝線名次：放在畫面上方，不要壓到毛毛蟲身上 */
 .finish-banner {

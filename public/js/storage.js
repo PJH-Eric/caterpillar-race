@@ -21,6 +21,7 @@
     vibrate: true,
     steerSens: 1,          /* 0 慢 1 普通 2 快 */
     camMode: 'head',       /* head 鏡頭硬鎖車頭（預設）｜chase 跟平滑後的行進方向｜track 跟賽道方向（比較不會暈） */
+    camTurnSpeed: 1,       /* head 模式的鏡頭轉速上限：0 慢 1 普通 2 快（會暈就調慢） */
     zoomLevel: 1,          /* 鏡頭遠近：0 近 1 普通 2 遠 */
     reduceMotion: false,
     colorAssist: false,

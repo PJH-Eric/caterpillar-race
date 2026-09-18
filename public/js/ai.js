@@ -110,8 +110,12 @@
       aim = aim * 0.35 + lat * 0.65 * skill;
     }
 
-    /* 閃泥巴與黏液 */
-    const hazards = track.mud.concat(state.goo.map(g => ({ x: g.x, y: g.y, r: 24 })));
+    /* 閃泥巴、水坑與黏液。
+     * 水坑要閃得比泥巴更開（半徑多算三成）：泥巴只是慢，水坑會讓車滑出去，
+     * 在彎道出口滑出去的代價比慢 0.2 秒大得多。 */
+    const hazards = track.mud
+      .concat((track.water || []).map(w => ({ x: w.x, y: w.y, r: w.r * 1.3 })))
+      .concat(state.goo.map(g => ({ x: g.x, y: g.y, r: 24 })));
     for (const h of hazards) {
       const dist = Math.hypot(h.x - nd.x, h.y - nd.y);
       if (dist > h.r + 30) continue;

@@ -35,7 +35,13 @@
     /* 火山：最低最悶，短促帶顆粒，像隔著岩壁聽到的 */
     volcano: { wave: 'sawtooth', root: 57, decay: 0.30, bassWave: 'square', bright: 0.55 },
     /* 星空：高、稀薄、尾音很長，像夜裡的鐘 */
-    starry: { wave: 'sine', root: 79, decay: 0.90, bassWave: 'triangle', bright: 1.3 }
+    starry: { wave: 'sine', root: 79, decay: 0.90, bassWave: 'triangle', bright: 1.3 },
+    /* 市中心：方波帶一點顆粒，短促乾淨，像街上的電子招牌 */
+    city: { wave: 'square', root: 70, decay: 0.28, bassWave: 'square', bright: 0.95 },
+    /* 高速公路：最快最亮，衰減短 —— 一路往前不回頭的感覺 */
+    highway: { wave: 'sawtooth', root: 74, decay: 0.22, bassWave: 'square', bright: 1.1 },
+    /* 夜間街道：低、悶、尾音長，像空蕩街上的回音 */
+    cityNight: { wave: 'sine', root: 61, decay: 0.75, bassWave: 'sine', bright: 0.62 }
   };
 
   function midi(n) { return 440 * Math.pow(2, (n - 69) / 12); }
@@ -145,6 +151,7 @@
       wall(t) { noise(t, 0.16, 0.3, 220, 0.8); },                        /* 撞牆：噗 */
       bump(t) { noise(t, 0.09, 0.16, 320, 1.2); },
       goo(t) { sweep(t, 300, 110, 0.26, 'sine', 0.24); },                /* 踩黏液：啵 */
+      splash(t) { noise(t, 0.18, 0.22, 900, 2.4); sweep(t, 1500, 600, 0.14, 'sine', 0.10); }, /* 踩水坑：嘩 */
       blocked(t) { sweep(t, 1200, 300, 0.25, 'sine', 0.22); },           /* 泡泡破 */
       hit(t) { sweep(t, 520, 180, 0.2, 'square', 0.16); },
       lap(t) { sweep(t, 900, 1400, 0.12, 'triangle', 0.2); sweep(t + 0.1, 1400, 1800, 0.14, 'triangle', 0.18); },

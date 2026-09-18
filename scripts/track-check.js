@@ -13,6 +13,14 @@ function ok(name, cond, extra) {
   else { fail++; console.log('  FAIL ' + name + (extra !== undefined ? '  → ' + extra : '')); }
 }
 
+/* 時間界線跟著 BASE_SPEED 走。這幾條在抓的是「賽道設計得太長／太短」，
+ * 不是在抓速度 —— 基礎速度一調慢，同一張賽道本來就會跑比較久，
+ * 界線寫死的話就會變成每次調手感都要回來改一次數字。
+ * 175 是這些界線當初校準時的基礎速度。 */
+const TIME_SCALE = 175 / Rules.C.BASE_SPEED;
+const LAP_MIN = 8 * TIME_SCALE, LAP_MAX = 70 * TIME_SCALE;
+const SPRINT_MIN = 20 * TIME_SCALE, SPRINT_MAX = 70 * TIME_SCALE;
+
 function driveOneLap(track, seed) {
   const st = Rules.createRace({
     track: track, laps: 1, seed: seed,
@@ -35,7 +43,8 @@ for (const def of Tracks.TRACKS) {
     ' ・ 道具葉 ' + tr.items.length +
     ' ・ 一圈 ' + r.finishTime.toFixed(1) + 's');
   ok(def.id + ' 跑得完一圈', r.finished, r.lap + ' 圈');
-  ok(def.id + ' 一圈在合理時間內（8～70 秒）', r.finishTime > 8 && r.finishTime < 70, r.finishTime.toFixed(1));
+  ok(def.id + ' 一圈在合理時間內（' + LAP_MIN.toFixed(0) + '～' + LAP_MAX.toFixed(0) + ' 秒）',
+    r.finishTime > LAP_MIN && r.finishTime < LAP_MAX, r.finishTime.toFixed(1));
   ok(def.id + ' 道具葉數量足夠', tr.items.length >= 10, tr.items.length);
   ok(def.id + ' 有加速帶', tr.boosts.length >= 1);
   ok(def.id + ' 圈數設定在 1～5 之間', tr.laps >= 1 && tr.laps <= 5);
@@ -136,7 +145,8 @@ function cornerCount(tr) {
     ok(def.id + ' 圈數設定成 1', def.laps === 1);
     const r = driveOneLap(tr, 'sp-' + def.id);
     ok(def.id + ' 從起點跑得到終點', r.finished, r.node + '/' + tr.nodes.length);
-    ok(def.id + ' 全程時間合理（20～70 秒）', r.finishTime > 20 && r.finishTime < 70, r.finishTime.toFixed(1));
+    ok(def.id + ' 全程時間合理（' + SPRINT_MIN.toFixed(0) + '～' + SPRINT_MAX.toFixed(0) + ' 秒）',
+      r.finishTime > SPRINT_MIN && r.finishTime < SPRINT_MAX, r.finishTime.toFixed(1));
     ok(def.id + ' 起跑格排在路徑開頭', tr.starts.every(s => s.node < tr.nodes.length * 0.1));
   }
 }

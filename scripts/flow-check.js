@@ -65,7 +65,7 @@ ok('設定 Modal 有遮罩', /id="modal-settings"[\s\S]*?modal-mask/.test(html))
 ok('設定 Modal 有焦點鎖定與 Esc 關閉', /function modal\(/.test(read('public/js/svgui.js')) &&
   /Escape/.test(read('public/js/svgui.js')) && /Tab/.test(read('public/js/svgui.js')));
 ok('關閉後焦點回到原本的按鈕', /lastFocus\.focus\(\)/.test(read('public/js/svgui.js')));
-for (const id of ['set-vibrate', 'set-sens', 'set-cam', 'set-zoom', 'set-motion', 'set-color', 'set-bigtext', 'set-bad', 'set-clear', 'set-reset']) {
+for (const id of ['set-vibrate', 'set-sens', 'set-cam', 'set-camspeed', 'set-zoom', 'set-motion', 'set-color', 'set-bigtext', 'set-bad', 'set-clear', 'set-reset']) {
   ok('設定裡有 ' + id, ids.has(id));
 }
 
@@ -163,6 +163,50 @@ ok('房主要按開始遊戲、玩家各自準備',
 ok('房間人數上限使用客製化下拉選單',
   ids.has('room-seats-trigger') && ids.has('room-seats-menu') &&
   /id="room-seats"[^>]*hidden/.test(html) && /buildSeatPicker/.test(online) && /\.select-menu\s*\{/.test(css));
+
+
+/* ---------- 起跑燈架 ---------- */
+{
+  const CD_PODS = 3;
+  ok('起跑用燈架不是數字倒數', html.includes('cd-gantry'));
+  const pods = (html.match(/class="cd-pod"/g) || []).length;
+  ok('燈架有三組燈柱', pods === CD_PODS, pods);
+  /* 每組上下兩顆，跟一般賽車的 2x5 燈架一樣 */
+  const two = (html.match(/<i><\/i><i><\/i>/g) || []).length;
+  ok('每組燈柱有上下兩顆燈', two === CD_PODS, two);
+  ok('亮燈與熄燈有分開的樣式', css.includes('.cd-pod i') && css.includes('.cd-pod.on i'));
+
+  /* 亮燈一定要有光暈，不然只是換個紅色，看不出「亮起來了」 */
+  const onRule = css.slice(css.indexOf('.cd-pod.on i'), css.indexOf('.cd-pod.on i') + 400);
+  ok('亮燈有光暈', onRule.includes('box-shadow') && onRule.includes('rgba(255'));
+
+  /* 尺寸用 vmin：直的橫的、手機平板桌機都是同一組數字 */
+  const gantryRule = css.slice(css.indexOf('.cd-gantry {'), css.indexOf('.cd-gantry {') + 400);
+  ok('燈架尺寸用 vmin（直橫向與各種螢幕共用一組數字）',
+    gantryRule.includes('vmin') && css.slice(css.indexOf('.cd-pod i {')).slice(0, 300).includes('vmin'));
+
+  ok('燈號另外播報文字給讀螢幕的人', html.includes('cd-sr') && css.includes('.cd-sr'));
+  ok('燈架對讀螢幕的人是隱藏的（燈號本身沒有語意）',
+    html.includes('cd-gantry" aria-hidden="true"'));
+
+  ok('燈號時間從 C.COUNTDOWN 推算（倒數改長短不用動這裡）',
+    app.includes('total / CD_PODS') && app.includes('Rules.C.COUNTDOWN'));
+  ok('熄燈之後燈架還會留一下（熄燈那一瞬間才是開跑訊號）',
+    app.includes('CD_LIGHTS_OUT') && app.includes('st.raceT < CD_LIGHTS_OUT'));
+  ok('下一局開始前會把上一局的亮燈收乾淨', app.includes('setCountdownLights(0)'));
+  ok('熄燈那一下不再叫一聲（go 事件自己有聲音）', app.includes('if (!go) G.audio.play'));
+
+  /* 燈號序列：照著 C.COUNTDOWN 算一遍，時間點與數量都要對 */
+  const Rules2 = require('../public/js/rules.js');
+  const total = Rules2.C.COUNTDOWN;
+  const step = total / CD_PODS;
+  const litAt = t => Math.max(0, Math.min(CD_PODS, Math.floor(t / step) + 1));
+  ok('倒數一開始就亮第一組', litAt(0) === 1);
+  ok('每過一個 step 多亮一組',
+    [0, 1, 2].every(i => litAt(i * step + 0.01) === i + 1));
+  ok('倒數結束前三組全亮', litAt(total - 0.01) === CD_PODS);
+  ok('最後一組亮完還有一段全紅（不然一亮就熄，反應不過來）', step >= 0.6, step.toFixed(2) + ' 秒');
+}
 
 /* ---------- 9. 賽道分頁 ---------- */
 {

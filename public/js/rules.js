@@ -34,7 +34,10 @@
     SEG_GAP: 9,
 
     /* 速度 */
-    BASE_SPEED: 175,           /* 跑道上的基礎速度（單位／秒）。按住前進就是這個速度 */
+    BASE_SPEED: 150,           /* 跑道上的基礎速度（單位／秒）。按住前進就是這個速度。
+                                * 175 直線衝太快，畫面流過去的速度會讓人暈；150 一圈慢約 16%。
+                                * 注意這個值調慢，低速轉向反而更快（TURN_SPEED_FALLOFF），
+                                * head 模式的鏡頭限速就是在擋這個。 */
     ACCEL: 450,
     BRAKE: 1050,               /* 目標比現在慢時，掉速比加速快 */
     GAS_UP: 1.0,               /* 鍵盤「上」：按住就是基礎速度，不再額外加成 */
@@ -50,11 +53,22 @@
     TURN_ACCEL: 8.5,           /* 角加速度（弧度／秒²），約 0.22 秒到滿舵 */
     TURN_RELEASE: 11.0,        /* 放開之後回正比較快，免得鬆手還在飄 */
 
-    /* 抓地力：每秒剩下多少橫向速度。越小越黏，越大越滑。 */
-    GRIP: { 0: 0.10, 1: 0.02, 2: 0.03, 3: 0.02 },
+    /* 抓地力：每秒剩下多少橫向速度。越小越黏，越大越滑。
+     * 水坑 0.30 比草地還滑 —— 水坑的懲罰是「會滑出去」，不是「變慢」，
+     * 這樣它跟泥巴才是兩種不同的東西，不是換個顏色的泥巴。
+     * 坡不改抓地力，坡就是純粹的速度。 */
+    GRIP: { 0: 0.10, 1: 0.02, 2: 0.03, 3: 0.02, 4: 0.30, 5: 0.02, 6: 0.02 },
 
-    /* 地形速度係數 */
-    SURFACE_SPEED: { 0: 0.65, 1: 1.0, 2: 0.45, 3: 1.0 },
+    /* 地形速度係數（index＝Tracks.SURFACE）
+     * 0 草地 1 跑道 2 泥巴 3 加速帶 4 水坑 5 上坡 6 下坡
+     * 水坑比泥巴好過一點（0.62 vs 0.45），痛的是它會打滑，看 GRIP。
+     *
+     * 上下坡的倍率是對稱的（-28% / +28%），但跑起來「一對坡」是淨扣時間的：
+     * 上下坡的距離一樣，可是慢的那段待得久、快的那段一下就過去了，
+     * 平均速度是調和平均 2/(1/0.72+1/1.28)＝0.92，不是算術平均的 1.00。
+     * 這是對的 —— 真實的坡本來就這樣，而且這讓「爬坡」真的是個代價。
+     * 要讓一對坡淨零的話下坡得開到 1.64，那個速度進彎會直接飛出去。 */
+    SURFACE_SPEED: { 0: 0.65, 1: 1.0, 2: 0.45, 3: 1.0, 4: 0.62, 5: 0.72, 6: 1.28 },
 
     /* 加速帶 */
     PAD_TIME: 1.5,
@@ -175,7 +189,8 @@
         connected: true,
         disconnectedAt: 0,
 
-        stats: { hits: 0, pads: 0, itemsUsed: 0, itemHits: 0, offTrack: 0 }
+        surface: S.TRACK,        /* 上一 tick 踩在什麼地形（用來抓「剛踏進水坑」那一刻） */
+        stats: { hits: 0, pads: 0, itemsUsed: 0, itemHits: 0, offTrack: 0, splash: 0, downhill: 0 }
       };
     });
 
@@ -215,7 +230,7 @@
     const d = DIFFICULTY[r.difficulty] || DIFFICULTY.normal;
     let f = C.SURFACE_SPEED[surface];
 
-    /* 果汁加速期間不怕減速地形 */
+    /* 果汁加速期間不怕減速地形（草地、泥巴、水坑、上坡都當作一般路面） */
     if (state.t < r.juiceUntil && f < 1) f = 1;
 
     let boost = 0;
@@ -537,6 +552,13 @@
         state.events.push({ type: 'pad', id: r.id });
       }
       if (surface === S.GRASS) r.stats.offTrack++;
+      /* 水坑：只在「剛踏進去」的那一刻發事件，不然每 tick 都在濺水 */
+      if (surface === S.WATER) {
+        if (r.surface !== S.WATER) state.events.push({ type: 'splash', id: r.id });
+        r.stats.splash++;
+      }
+      if (surface === S.DOWN) r.stats.downhill++;
+      r.surface = surface;
 
       /* 把速度拆成「朝向前方」與「橫向滑移」兩份 */
       const hx = Math.cos(r.angle), hy = Math.sin(r.angle);

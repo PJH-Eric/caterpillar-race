@@ -126,6 +126,41 @@
       sky2: '#8FC4E8', skyLow: '#F2FAFF',
       hill: '#B9D3E6', hillDark: '#94B4CD', sun: '#FFFBE8',
       decor: ['pebble', 'twig', 'clover'], night: false
+    },
+
+    /* ---- 城市 ----
+     * 這三套的「草地」其實是人行道與水泥地，所以刻意做成灰的：
+     * 城市賽道的路外不該是草皮，不然看起來只是把花園的路換成柏油。
+     * rock／rockDark 在城市裡是大樓的正面與側面（見 render.js 的 building）。 */
+    city: {
+      name: '市中心',
+      grass: '#B9BEC4', grassDark: '#9BA1A8', grassAlt: '#CBD0D5',
+      road: '#6E747C', roadDark: '#565C64', roadEdge: '#EDEFF2',
+      mud: '#4A433C', boost: '#BFE9FF', sky: '#D7E4EE',
+      rock: '#C2C8D0', rockDark: '#8E959E',
+      sky2: '#9CC4E4', skyLow: '#E8F1F8',
+      hill: '#A8AFB8', hillDark: '#848B94', sun: '#FFF6CE',
+      decor: ['pebble', 'pebble', 'twig'], night: false
+    },
+    highway: {
+      name: '高速公路',
+      grass: '#A7B89A', grassDark: '#879A7C', grassAlt: '#BCCBB0',
+      road: '#5E636B', roadDark: '#474C53', roadEdge: '#F4F6F8',
+      mud: '#463F38', boost: '#CFF0FF', sky: '#CFE2F2',
+      rock: '#BEC6CE', rockDark: '#8A9199',
+      sky2: '#8FBEE6', skyLow: '#E4F0FA',
+      hill: '#9DAE92', hillDark: '#7B8B72', sun: '#FFF4C6',
+      decor: ['pebble', 'twig', 'pebble'], night: false
+    },
+    cityNight: {
+      name: '夜間街道',
+      grass: '#2B2F38', grassDark: '#1E222A', grassAlt: '#3A3F4A',
+      road: '#3A3F48', roadDark: '#2A2E36', roadEdge: '#C9D2DE',
+      mud: '#1B1811', boost: '#8BE3FF', sky: '#171B26',
+      rock: '#39404D', rockDark: '#242A34',
+      sky2: '#2B3A55', skyLow: '#3C4A63',
+      hill: '#2F3541', hillDark: '#20242C', sun: '#FFD98A',
+      decor: ['glow', 'pebble', 'twig'], night: true
     }
   };
 
