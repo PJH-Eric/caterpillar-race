@@ -246,12 +246,15 @@
   </div>
 
   <div class="countdown" id="countdown" hidden>
-    <!-- 起跑燈架：五組燈柱，每組上下兩顆紅燈（跟一般賽車的燈架一樣）。
-         一組一組亮起來，五組全亮之後「同時熄滅」＝開跑。 -->
-    <div class="cd-gantry" id="cd-gantry" aria-hidden="true">
-      <div class="cd-pod" data-pod="1"><i></i><i></i></div>
-      <div class="cd-pod" data-pod="2"><i></i><i></i></div>
-      <div class="cd-pod" data-pod="3"><i></i><i></i></div>
+    <!-- 起跑燈架：一排三顆紅燈，一顆一顆亮起來，三顆全亮之後「同時熄滅」＝開跑。
+         掛在畫面上方的天空帶裡（地平線在三分之一處），所以不會蓋到賽道與毛毛蟲。 -->
+    <div class="cd-rig" aria-hidden="true">
+      <div class="cd-hang"><i></i><i></i></div>
+      <div class="cd-gantry" id="cd-gantry">
+        <div class="cd-pod" data-pod="1"><i></i></div>
+        <div class="cd-pod" data-pod="2"><i></i></div>
+        <div class="cd-pod" data-pod="3"><i></i></div>
+      </div>
     </div>
     <div class="cd-go" id="cd-go" hidden>開跑！</div>
     <!-- 燈號對讀螢幕的人沒有意義，另外播報一份文字 -->
@@ -309,24 +312,10 @@
         <label class="row"><span>轉向靈敏度</span>
           <select id="set-sens"><option value="0">慢一點</option><option value="1">普通</option><option value="2">快一點</option></select>
         </label>
-        <label class="row"><span>鏡頭跟隨</span>
-          <select id="set-cam">
-            <option value="head">鎖定毛毛蟲車頭（鏡頭不會自己轉，轉頭才轉畫面）</option>
-            <option value="chase">跟行進方向（一般賽車，直線就是直的）</option>
-            <option value="track">跟賽道方向（比較不容易暈）</option>
-          </select>
-        </label>
-        <label class="row"><span>鏡頭轉動速度</span>
-          <select id="set-camspeed">
-            <option value="0">慢一點（最不容易暈）</option>
-            <option value="1">普通</option>
-            <option value="2">快一點（畫面最貼車頭）</option>
-          </select>
-        </label>
         <label class="row"><span>鏡頭遠近</span>
           <select id="set-zoom"><option value="0">近一點</option><option value="1">普通</option><option value="2">遠一點（看得到更多前方）</option></select>
         </label>
-        <p class="hint">「鎖定車頭」最像一般賽車，畫面完全由你的方向決定。轉彎會暈的話先把「鏡頭轉動速度」調慢，再不行就改成「跟賽道方向」，並把「鏡頭遠近」調遠一點。</p>
+        <p class="hint">鏡頭永遠鎖在毛毛蟲車頭上（跟一般賽車一樣），畫面只有在你轉方向時才跟著轉。覺得暈就把「鏡頭遠近」調遠一點。</p>
       </section>
       <section class="set-group">
         <h3><i data-icon="see"></i>看得清楚</h3>

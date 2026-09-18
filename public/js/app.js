@@ -79,8 +79,6 @@
     bind('set-sfx-vol', 'sfxVol', 'range');
     bind('set-vibrate', 'vibrate', 'check');
     bind('set-sens', 'steerSens', 'select');
-    bind('set-cam', 'camMode', 'text');
-    bind('set-camspeed', 'camTurnSpeed', 'select');
     bind('set-zoom', 'zoomLevel', 'select');
     bind('set-motion', 'reduceMotion', 'check');
     bind('set-color', 'colorAssist', 'check');
@@ -111,8 +109,6 @@
     $('set-sfx-vol').value = Math.round(s.sfxVol * 100);
     $('set-vibrate').checked = s.vibrate;
     $('set-sens').value = String(s.steerSens);
-    $('set-cam').value = s.camMode;
-    $('set-camspeed').value = s.camTurnSpeed;
     $('set-zoom').value = String(s.zoomLevel);
     $('set-motion').checked = s.reduceMotion;
     $('set-color').checked = s.colorAssist;
@@ -448,8 +444,6 @@
     /* 軌跡初始化：往後補一段，開局就有身體，不會縮成一坨 */
     G.trails = {};
     G.bannerKey = '';
-    G.camVel = null;
-    G.camRate = 0;
     hideRaceResult();
     { const rp = $('room-result'); if (rp) rp.hidden = true; }
     if (G.resultTimer) { root.clearTimeout(G.resultTimer); G.resultTimer = 0; }
@@ -678,15 +672,7 @@
     { back: 170, height: 84 },    /* 普通：看得到毛毛蟲前面那一段路 */
     { back: 224, height: 116 }    /* 遠一點：看得到更多前方彎道，轉彎時最不暈 */
   ];
-  /* 鏡頭偏航要跟誰：
-   *   track  跟前方賽道的方向（預設）—— 修方向的左右擺完全不會傳到畫面
-   *   chase  跟毛毛蟲的車頭 —— 比較跟手，但快速修方向時畫面會跟著晃
-   */
-  const CAM_YAW_LERP = { track: 0.16, chase: 0.30 };   /* head 模式不過阻尼器，所以沒有值 */
   const CAM_POS_LERP = 0.10;     /* 位置的跟隨速度，慢一點才不會被身體擺動帶著抖 */
-
-  /* 鏡頭轉動的阻尼住在 Render.CAM_YAW / Render.stepCamYaw（放那裡測試才跑得到）。
-   * CAM_YAW_LERP 決定「想要的轉速是角差的幾分之幾」，阻尼器再把它限速、平滑。 */
 
   function camView() { return CAM_VIEWS[G.settings.zoomLevel] || CAM_VIEWS[1]; }
 
@@ -703,111 +689,28 @@
     maybeRotateTip();
   }
 
-  /**
-   * 鏡頭要轉到哪個角度。
-   * track 模式看的是「前方賽道的方向」而不是車頭 —— 賽道方向不會因為身體擺動而抖，
-   * 但過彎時還是會順順地轉，而且毛毛蟲本來就大致順著賽道，操作仍然直覺。
-   */
-  /**
-   * chase 模式的鏡頭軸線 ——「跟一般賽車一樣」的關鍵在這裡。
-   *
-   * 用瞬時車頭（me.angle）不行：毛毛蟲一邊跑一邊左右擺，車頭本身就在抖，
-   * 鏡頭跟著它走，直線上畫面就一直左右搖。
-   *
-   * 改成看「平滑過的行進方向」：把速度向量做指數平滑再取角度。
-   * 平滑的是向量不是角度 —— 左右修正的橫向分量會自己抵銷掉，
-   * 所以直線上算出來就是一條直的，過彎時才真的轉過去。
-   * 時間常數約 0.55 秒，蓋掉一個完整的擺動週期還有餘裕，彎道也還跟得上。
-   */
-  const CAM_VEL_LERP = 0.030;
-  /* 提前量：鏡頭的目標方向裡混多少「前面那段路的方向」。
-   * 一般賽車的鏡頭在進彎之前就開始轉了，整個彎的旋轉被攤在更長的時間裡，
-   * 所以尖峰轉速低很多，而且因為是「先轉」，鏡頭也不會落在車子後面。 */
-  const CAM_LOOK_MIX = 0.58;
-
-  function chaseAxis(me, snapTo) {
-    const hx = Math.cos(me.angle), hy = Math.sin(me.angle);
-    const sp = Math.hypot(me.vx, me.vy);
-    /* 速度太小、或正在倒車時，行進方向沒有意義（倒車還會讓鏡頭整個翻半圈），
-     * 這兩種情況一律聽車頭的 */
-    const useVel = sp > 25 && (me.vx * hx + me.vy * hy) > 0;
-    let tx = useVel ? me.vx / sp : hx;
-    let ty = useVel ? me.vy / sp : hy;
-
-    /* 混一點前方賽道的方向進來（倒著開或跑出去太遠時不混，不然畫面會翻過去） */
-    if (useVel && G.track) {
-      const nodes = G.track.nodes;
-      const ahead = Math.round((72 + me.speed * 0.42) / Tracks.NODE_STEP);
-      const nd = nodes[Tracks.idx(G.track, me.node + ahead)];
-      if (nd) {
-        /* 權重要漸進，不能用開關 —— 開關一翻，目標方向瞬間跳一大塊，
-         * 鏡頭補那一下就是在甩鏡頭 */
-        const dot = nd.tx * tx + nd.ty * ty;
-        const w = CAM_LOOK_MIX * Math.max(0, Math.min(1, (dot - 0.05) / 0.45));
-        if (w > 0) {
-          tx += (nd.tx - tx) * w;
-          ty += (nd.ty - ty) * w;
-          const l = Math.hypot(tx, ty);
-          if (l > 1e-4) { tx /= l; ty /= l; }
-        }
-      }
-    }
-
-    let sm = G.camVel;
-    if (!sm || snapTo) sm = G.camVel = { x: tx, y: ty };
-    else {
-      sm.x += (tx - sm.x) * CAM_VEL_LERP;
-      sm.y += (ty - sm.y) * CAM_VEL_LERP;
-      const len = Math.hypot(sm.x, sm.y);
-      if (len > 1e-4) { sm.x /= len; sm.y /= len; }
-      else { sm.x = tx; sm.y = ty; }
-    }
-    return Math.atan2(sm.y, sm.x);
-  }
-
-  function camTargetAngle(me, snapTo) {
-    /* head 模式：鏡頭就是車頭，沒有前瞻、沒有行進方向平滑 —— 鏡頭不會自己轉，
-     * 畫面只有在玩家轉方向的時候才跟著轉，跟一般賽車的車後視角一樣。 */
-    if (G.settings.camMode === 'head') return me.angle;
-    if (G.settings.camMode === 'chase') return chaseAxis(me, snapTo);
-    const nodes = G.track.nodes, n = nodes.length;
-    const ahead = Math.round((70 + me.speed * 0.4) / Tracks.NODE_STEP);
-    const nd = nodes[Tracks.idx(G.track, me.node + ahead)];
-    const a = Math.atan2(nd.ty, nd.tx);
-    /* 倒著開或整個跑出賽道時，賽道方向可能跟車頭差很多，
-     * 這時候硬轉過去會讓畫面翻半圈，改成聽車頭的。 */
-    let diff = a - me.angle;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    return Math.abs(diff) > 1.9 ? me.angle : a;
-  }
-
   function updateCamera(me, dt, snapTo) {
     const cv = camView();
     /* 速度越快鏡頭拉越遠，速度感才出得來 */
     const back = cv.back * (1 + Math.min(0.28, me.speed / 1600));
 
-    /* 鏡頭的「軸線」：鏡頭沿著這個方向退到毛毛蟲後面，而且就看著這個方向。
+    /* 鏡頭的「軸線」就是車頭角，沒有別的來源 ——
+     * 不看行進方向、不看前方賽道，所以鏡頭永遠不會自己轉，
+     * 畫面只有在玩家轉方向的時候才跟著轉（一般賽車的車後視角）。
+     *
      * 因為位置與偏航用的是同一個角度，毛毛蟲一定會落在畫面正中央 ——
      * 不管是過彎、被撞、還是倒退，視角都固定在自己身上。 */
-    const axis = camTargetAngle(me, snapTo);
-    /* head 模式不過阻尼器：阻尼器一限速，轉彎時鏡頭就會落在車頭後面（看起來
-     * 像鏡頭自己在追車），改用 headCamYaw 直接鎖上去，才是「車頭指哪、畫面就看哪」。
-     * 這一支排在 reduceMotion 前面是故意的：head 模式的鏡頭本來就不會自己動，
-     * headCamYaw 比直接抄車頭角還平順、落後也更小，對會暈的人只有好處。 */
-    if (!snapTo && G.settings.camMode === 'head') {
-      const R = root.Render;
-      const rate = R.HEAD_CAM_RATE[G.settings.camTurnSpeed] || R.HEAD_CAM.maxRate;
-      G.cam.h = R.headCamYaw(G.cam.h, axis, me.turnVel, dt, rate);
-      G.camRate = 0;
-    } else if (snapTo || G.settings.reduceMotion) {
-      G.cam.h = axis;
-      G.camRate = 0;
+    const axis = me.angle;
+    /* 不過限速阻尼器：阻尼器一限速，轉彎時鏡頭就會落在車頭後面（看起來
+     * 像鏡頭自己在追車），headCamYaw 直接鎖上去才是「車頭指哪、畫面就看哪」。
+     *
+     * 這一支排在 reduceMotion 前面是故意的：鏡頭本來就不會自己動，
+     * headCamYaw 比直接抄車頭角還平順、落後也更小，對會暈的人只有好處。
+     * 真正決定「畫面轉多快」的是車本身的轉向速度（Rules.C.TURN），不是這裡。 */
+    if (!snapTo) {
+      G.cam.h = root.Render.headCamYaw(G.cam.h, axis, me.turnVel, dt);
     } else {
-      const lerp = CAM_YAW_LERP[G.settings.camMode] || CAM_YAW_LERP.track;
-      const yaw = root.Render.stepCamYaw({ h: G.cam.h, rate: G.camRate || 0 }, axis, dt, lerp);
-      G.cam.h = yaw.h;
-      G.camRate = yaw.rate;
+      G.cam.h = axis;
     }
 
     /* 位置直接算出來，不做額外的跟隨平滑 —— 平滑會讓鏡頭被拖在後面，
@@ -1187,9 +1090,12 @@
 
   /* 起跑燈架 ——「一般賽車」的起跑方式。
    *
-   * 三組燈柱一組一組亮，全亮之後同時熄滅＝開跑。這比數字倒數好讀的地方在於
-   * 「還剩多久」是一眼看得到的量（幾組亮了），不用讀字；
+   * 一排三顆燈一顆一顆亮，全亮之後同時熄滅＝開跑。這比數字倒數好讀的地方在於
+   * 「還剩多久」是一眼看得到的量（幾顆亮了），不用讀字；
    * 而且熄燈的那一瞬間是同時發生的，起跑時機很明確。
+   *
+   * 燈架掛在畫面上方的天空帶裡（地平線在三分之一處），所以不會蓋到
+   * 賽道與毛毛蟲 —— 倒數的時候玩家還是看得到自己在哪、前面是什麼路。
    *
    * 倒數期間 st.t 是從 0 走到 C.COUNTDOWN（不是負的走到 0）。
    * 時間全部從 C.COUNTDOWN 推算，所以倒數改長改短都不用動這裡：

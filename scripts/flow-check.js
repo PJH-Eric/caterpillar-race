@@ -65,7 +65,7 @@ ok('設定 Modal 有遮罩', /id="modal-settings"[\s\S]*?modal-mask/.test(html))
 ok('設定 Modal 有焦點鎖定與 Esc 關閉', /function modal\(/.test(read('public/js/svgui.js')) &&
   /Escape/.test(read('public/js/svgui.js')) && /Tab/.test(read('public/js/svgui.js')));
 ok('關閉後焦點回到原本的按鈕', /lastFocus\.focus\(\)/.test(read('public/js/svgui.js')));
-for (const id of ['set-vibrate', 'set-sens', 'set-cam', 'set-camspeed', 'set-zoom', 'set-motion', 'set-color', 'set-bigtext', 'set-bad', 'set-clear', 'set-reset']) {
+for (const id of ['set-vibrate', 'set-sens', 'set-zoom', 'set-motion', 'set-color', 'set-bigtext', 'set-bad', 'set-clear', 'set-reset']) {
   ok('設定裡有 ' + id, ids.has(id));
 }
 
@@ -168,26 +168,51 @@ ok('房間人數上限使用客製化下拉選單',
 /* ---------- 起跑燈架 ---------- */
 {
   const CD_PODS = 3;
+  /* 三段 CSS 規則先撈出來，下面好幾條檢查都要用 */
+  const cdRule = css.slice(css.indexOf('.countdown {'), css.indexOf('.countdown[hidden]'));
+  const gantryRule = css.slice(css.indexOf('.cd-gantry {'), css.indexOf('.cd-gantry {') + 420);
+  const lampRule = css.slice(css.indexOf('.cd-pod i {'), css.indexOf('.cd-pod.on i'));
+  const onRule = css.slice(css.indexOf('.cd-pod.on i'), css.indexOf('.cd-pod.on i') + 460);
+
   ok('起跑用燈架不是數字倒數', html.includes('cd-gantry'));
   const pods = (html.match(/class="cd-pod"/g) || []).length;
   ok('燈架有三組燈柱', pods === CD_PODS, pods);
-  /* 每組上下兩顆，跟一般賽車的 2x5 燈架一樣 */
-  const two = (html.match(/<i><\/i><i><\/i>/g) || []).length;
-  ok('每組燈柱有上下兩顆燈', two === CD_PODS, two);
+  /* 一排燈，一組一顆（不是上下兩排） */
+  const lamps = (html.match(/class="cd-pod" data-pod="\d"><i><\/i><\/div>/g) || []).length;
+  ok('一組燈柱就一顆燈（只有一排）', lamps === CD_PODS, lamps);
+  ok('燈架是一排（flex 橫向排）', gantryRule.includes('display: flex'));
+
+  /* 倒數不能蓋到賽道與毛毛蟲：地平線在畫面三分之一處，燈架要收在那之上。
+   * place-items: center 會把燈架放在畫面正中央 —— 那正好是毛毛蟲的位置。 */
+  ok('倒數靠上排，不是置中（置中會蓋到毛毛蟲）',
+    cdRule.includes('align-content: start') && !cdRule.includes('place-items: center'));
+  ok('倒數有留上方安全區', cdRule.includes('--safe-t'));
+
+  /* 燈要夠小才不會擋畫面：燈架總高（燈 ＋ 內距 ＋ 邊框 ＋ 上方留白）
+   * 要收在地平線（33%）以上。橫向時 vmin ＝ 畫面高，所以直接用 vmin 換算。 */
+  const lampVmin = parseFloat((lampRule.match(/width:\s*([\d.]+)vmin/) || [])[1]);
+  ok('燈的尺寸用 vmin 指定', !isNaN(lampVmin), lampVmin);
+  ok('單顆燈不超過畫面短邊的 6%', lampVmin <= 6, lampVmin + 'vmin');
+  const padVmin = parseFloat((gantryRule.match(/padding:\s*([\d.]+)vmin/) || [])[1]) || 0;
+  const topVmin = parseFloat((cdRule.match(/\+\s*([\d.]+)vmin\)/) || [])[1]) || 0;
+  const totalVmin = topVmin + lampVmin + padVmin * 2 + 3;   /* +3 給吊桿與邊框 */
+  ok('燈架整個收在地平線以上（不蓋到路面）', totalVmin < 33,
+    '約佔畫面短邊 ' + totalVmin.toFixed(1) + '%，地平線在 33%');
   ok('亮燈與熄燈有分開的樣式', css.includes('.cd-pod i') && css.includes('.cd-pod.on i'));
 
+  /* 吊桿：讓燈架看起來是吊著的，不是浮在空中 */
+  ok('燈架有吊桿', html.includes('cd-hang') && css.includes('.cd-hang i'));
+
   /* 亮燈一定要有光暈，不然只是換個紅色，看不出「亮起來了」 */
-  const onRule = css.slice(css.indexOf('.cd-pod.on i'), css.indexOf('.cd-pod.on i') + 400);
   ok('亮燈有光暈', onRule.includes('box-shadow') && onRule.includes('rgba(255'));
 
   /* 尺寸用 vmin：直的橫的、手機平板桌機都是同一組數字 */
-  const gantryRule = css.slice(css.indexOf('.cd-gantry {'), css.indexOf('.cd-gantry {') + 400);
   ok('燈架尺寸用 vmin（直橫向與各種螢幕共用一組數字）',
     gantryRule.includes('vmin') && css.slice(css.indexOf('.cd-pod i {')).slice(0, 300).includes('vmin'));
 
   ok('燈號另外播報文字給讀螢幕的人', html.includes('cd-sr') && css.includes('.cd-sr'));
   ok('燈架對讀螢幕的人是隱藏的（燈號本身沒有語意）',
-    html.includes('cd-gantry" aria-hidden="true"'));
+    html.includes('cd-rig" aria-hidden="true"'));
 
   ok('燈號時間從 C.COUNTDOWN 推算（倒數改長短不用動這裡）',
     app.includes('total / CD_PODS') && app.includes('Rules.C.COUNTDOWN'));

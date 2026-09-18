@@ -325,10 +325,14 @@
    *   2. 用角速度做前饋（lead）—— 濾波本來會讓鏡頭落後，但車頭的角速度是已知的
    *      （turnVel），補上去剛好把落後抵銷掉。實測落後比直接抄還小
    *      （最多 0.9 度 vs 2.4 度），同時平順五倍。
-   *   3. 轉速上限（maxRate）—— 會暈的是這個。實際開起來車頭角速度的分布是
-   *      中位 16°/s、九成 65°/s、九九成 114°/s、最大 140°/s：一般過彎其實很慢，
-   *      是最上面那一成在甩。所以限速只砍尖峰，九成的時間根本碰不到上限，
-   *      「畫面鎖在車頭上」的手感不會被動到。
+   *   3. 轉速上限（maxRate）—— 只砍「急甩」那一下。實際開起來車頭角速度的分布是
+   *      中位 16°/s、九成 60°/s：一般過彎其實很慢，是最上面那一成在甩。
+   *      上限訂在 69°/s 剛好卡在九成之上 —— 九成的彎落後只有 1 度（等於沒限速），
+   *      0.4 秒的急甩則從 101 砍到 73°/s。
+   *
+   *      上限不能訂得比這更低：訂 54°/s 的話連九成的彎都會落後 12 度，
+   *      毛毛蟲在一般過彎時就看得出來歪掉。而真正決定「畫面最快轉多快」的是
+   *      車本身的轉向速度（Rules.C.TURN），不是這裡 —— 限速砍不掉持續過彎的轉速。
    *
    * 限速一定要配 lagMax／lagBoost：髮夾彎一路打死方向的話，鏡頭會愈落愈後面
    * 而且永遠追不回來。落後超過 lagMax 就把上限放寬，落後才會停在一個定值
@@ -337,13 +341,10 @@
   const HEAD_CAM = {
     tau: 0.05,
     lead: 0.055,
-    maxRate: 0.95,     /* 每秒最多轉幾弧度（約 54 度／秒），砍掉最快的那一成 */
+    maxRate: 1.20,     /* 每秒最多轉幾弧度（約 69 度／秒），只砍急甩的那一下 */
     lagMax: 0.35,      /* 落後超過這麼多弧度（20 度）才放寬上限 */
     lagBoost: 5.0      /* 超過之後每多一弧度，上限放寬幾倍 */
   };
-
-  /** 鏡頭轉動速度的三段，對應設定裡的「鏡頭轉動速度」 */
-  const HEAD_CAM_RATE = [0.62, 0.95, 1.70];   /* 約 36／54／97 度／秒 */
 
   /**
    * @param {number} h 目前的鏡頭角
@@ -1745,7 +1746,7 @@
     makeCanvas, projector, sampleTrail, wormSvg, segPattern,
     buildScenery, drawProp, drawLeaf, drawWorm3D, drawFace,
     drawSky, drawGround, drawGroundBands, drawGroundTexture, drawFog, drawTunnelShade, drawSpeedLines, trackFaces, trackDecals, groundBlob, curveAt,
-    CAM_YAW, stepCamYaw, HEAD_CAM, HEAD_CAM_RATE, headCamYaw,
+    CAM_YAW, stepCamYaw, HEAD_CAM, headCamYaw,
     surfaceColors, mix, shade
   };
 })(typeof self !== 'undefined' ? self : this);

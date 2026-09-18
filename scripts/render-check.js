@@ -107,21 +107,34 @@ ok('渲染端有低效能模式的開關', /lite/.test(render));
 /* ---------- 鏡頭 ---------- */
 const app = read('public/js/app.js');
 ok('鏡頭在毛毛蟲後上方', /CAM_VIEWS/.test(app) && /back:/.test(app) && /height:/.test(app));
-ok('鏡頭偏航預設跟賽道方向（修方向時才不會把畫面帶著晃）', /camTargetAngle/.test(app) && /賽道方向/.test(app));
+ok('鏡頭偏航就是車頭角，沒有別的來源', app.includes('const axis = me.angle;') &&
+  !app.includes('camTargetAngle') && !app.includes('chaseAxis'));
 ok('鏡頭用平滑過的行進方向退到後面', /cam\.h/.test(app));
 ok('鏡頭位置與偏航用同一個軸線（毛毛蟲永遠釘在畫面正中央）',
   /G\.cam\.a = G\.cam\.h/.test(app) && /Math\.cos\(G\.cam\.h\) \* back/.test(app));
 ok('鏡頭位置不做額外平滑（不然毛毛蟲會忽大忽小）', !/G\.cam\.x \+=/.test(app));
-ok('鏡頭旋轉有限速', /stepCamYaw/.test(app) && Render.CAM_YAW.maxRate > 0);
+/* 畫面轉多快由車本身的轉向速度決定，不是鏡頭端限速 ——
+ * 實測鏡頭限速從 54 降到 14 度/秒，持續過彎的尖峰只從 119 掉到 113，
+ * 落後卻從 25 度爆到 94 度。彎要轉的總角度是賽道給的，鏡頭遲早要轉完。 */
+{
+  const C = require('../public/js/rules.js').C;
+  const peak = C.TURN * (1 - C.TURN_SPEED_FALLOFF) * 180 / Math.PI;
+  ok('高速時畫面最快轉速在可接受範圍（會暈的是這個數字）', peak < 115,
+    peak.toFixed(0) + ' 度/秒');
+  ok('轉向速度還夠過彎（太低會有賽道過不去）', C.TURN >= 2.2, C.TURN);
+}
 
-/* ---------- head 模式：鏡頭鎖死在車頭上 ---------- */
+/* ---------- 鏡頭：鎖死在車頭上，而且不可設定 ---------- */
 {
   const html = read('public/index.html');
   const store = read('public/js/storage.js');
-  ok('有「鎖定車頭」的鏡頭模式可以選', /value="head"/.test(html));
-  ok('預設就是鎖定車頭', /camMode: 'head'/.test(store));
-  ok('舊存檔會被帶到鎖定車頭（改 DEFAULTS 對已經有存檔的人沒用）',
-    /VERSION/.test(store) && /function migrate/.test(store));
+
+  /* 鏡頭只有一種，設定裡不該再有任何鏡頭跟隨／轉速的選項 */
+  ok('設定裡沒有鏡頭跟隨的選項', !html.includes('set-cam"') && !store.includes('camMode:'));
+  ok('設定裡沒有鏡頭轉動速度的選項',
+    !html.includes('set-camspeed') && !store.includes('camTurnSpeed:'));
+  ok('鏡頭遠近還留著（會暈的人唯一的緩解手段）', html.includes('set-zoom'));
+  ok('舊存檔裡的鏡頭設定會被清掉', store.includes('delete raw.camMode'));
   {
     const S = require('../public/js/storage.js').Store;
     const withStore = raw => {
@@ -129,163 +142,71 @@ ok('鏡頭旋轉有限速', /stepCamYaw/.test(app) && Render.CAM_YAW.maxRate > 0
         getItem() { return this._v; }, setItem(k, x) { this._v = x; } };
       return S.load();
     };
-    ok('舊存檔的 chase 會帶成 head', withStore({ camMode: 'chase' }).camMode === 'head');
-    ok('自己挑過 track 的不動', withStore({ camMode: 'track' }).camMode === 'track');
-    ok('轉換過之後又自己挑 chase 就不再被蓋掉',
-      withStore({ camMode: 'chase', v: 2 }).camMode === 'chase');
-    ok('全新玩家就是 head', withStore(null).camMode === 'head');
+    const old = withStore({ camMode: 'chase', camTurnSpeed: 2, nickname: 'Eric' });
+    ok('舊存檔的鏡頭鍵清乾淨了', old.camMode === undefined && old.camTurnSpeed === undefined);
+    ok('清鏡頭設定不會動到其他設定', old.nickname === 'Eric');
+    ok('設定檔版本往上帶', old.v === 3, old.v);
     delete global.localStorage;
   }
-  ok('head 模式直接回傳車頭角，不混賽道前瞻也不平滑行進方向',
-    app.includes("camMode === 'head') return me.angle"));
-  ok('head 模式走 headCamYaw，不走賽道前瞻那套阻尼器',
-    app.includes('headCamYaw(') && !app.includes('CAM_YAW_LERP.head'));
-  ok('鏡頭轉動速度是可以調的', /set-camspeed/.test(html) && /camTurnSpeed/.test(store) &&
-    app.includes('HEAD_CAM_RATE[G.settings.camTurnSpeed]'));
-  ok('鏡頭轉動速度三段由慢到快', Render.HEAD_CAM_RATE.length === 3 &&
-    Render.HEAD_CAM_RATE[0] < Render.HEAD_CAM_RATE[1] && Render.HEAD_CAM_RATE[1] < Render.HEAD_CAM_RATE[2]);
-  ok('預設那一段就是 HEAD_CAM.maxRate',
-    Render.HEAD_CAM_RATE[1] === Render.HEAD_CAM.maxRate);
+
+  ok('鏡頭走 headCamYaw', app.includes('root.Render.headCamYaw('));
+  ok('鏡頭沒有可調的轉速上限了', typeof Render.HEAD_CAM_RATE === 'undefined');
 
   /* 30Hz 物理 + 60Hz 繪製：鏡頭不能一格一格地頓，也不能落在車頭後面 */
   const un = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
   const TICK = 1 / 30, FRAME = 1 / 60;
-  /* warm＝前幾幀不列入統計。量「短彎的尖峰」時要連起步那一下一起看，就傳 0。 */
-  function sweep(rate, frames, cap, warm) {
-    if (warm === undefined) warm = 30;
+  const deg = r => (r * 180 / Math.PI).toFixed(1);
+
+  function sweep(rate, frames) {
     let angle = 0, turnVel = 0, acc = 0, h = 0;
-    let judder = 0, maxLag = 0, peakRate = 0, prevStep = 0;
-    let lagMid = 0, lagEnd = 0;
+    let judder = 0, maxLag = 0, prevStep = 0;
     for (let f = 0; f < frames; f++) {
       acc += FRAME;
       while (acc >= TICK) { turnVel = rate; angle = un(angle + turnVel * TICK); acc -= TICK; }
       const before = h;
-      h = Render.headCamYaw(h, angle, turnVel, FRAME, cap);
+      h = Render.headCamYaw(h, angle, turnVel, FRAME);
       const step = Math.abs(un(h - before));
-      const lag = Math.abs(un(angle + turnVel * acc - h));   /* 對次刻度後的真實車頭角 */
-      if (f > warm) {
+      if (f > 30) {
         judder = Math.max(judder, Math.abs(step - prevStep));
-        maxLag = Math.max(maxLag, lag);
-        peakRate = Math.max(peakRate, step / FRAME);
+        maxLag = Math.max(maxLag, Math.abs(un(angle + turnVel * acc - h)));
       }
-      if (f === Math.floor(frames / 2)) lagMid = lag;
-      if (f === frames - 1) lagEnd = lag;
       prevStep = step;
     }
-    /* 放開方向鍵之後，鏡頭要追得回來 */
-    turnVel = 0;
-    for (let f = 0; f < 240; f++) h = Render.headCamYaw(h, angle, 0, FRAME, cap);
-    return { judder, maxLag, peakRate, lagGrowth: lagEnd - lagMid,
-      settled: Math.abs(un(angle - h)) };
+    /* 放開方向鍵之後要追得回來 */
+    for (let f = 0; f < 240; f++) h = Render.headCamYaw(h, angle, 0, FRAME);
+    return { judder, maxLag, settled: Math.abs(un(angle - h)) };
   }
-  const CAP = Render.HEAD_CAM.maxRate;
-  const deg = r => (r * 180 / Math.PI).toFixed(1);
 
-  /* 一般過彎（實測中位 16°/s、九成 65°/s）——這一段要完全感覺不到限速 */
-  const normal = sweep(0.5, 600);   /* 29°/s */
-  ok('head 模式一般過彎時鏡頭還是貼著車頭（限速碰不到）',
-    normal.maxLag < 0.04, '最多落後 ' + deg(normal.maxLag) + ' 度');
-  ok('head 模式一般過彎時畫面不會一格一格地頓',
+  /* 一般過彎（實測車頭角速度中位 16、九成 60 度/秒） */
+  const normal = sweep(0.5, 600);
+  ok('一般過彎時鏡頭貼著車頭', normal.maxLag < 0.04, '最多落後 ' + deg(normal.maxLag) + ' 度');
+  ok('一般過彎時畫面不會一格一格地頓',
     normal.judder < 0.02, '每幀轉動差 ' + deg(normal.judder) + ' 度');
 
-  /* 會暈的是「突然甩一下」，不是整場。限速砍的就是這一段 ——
-   * 注意限速砍不掉「一直轉下去」的轉速：彎要轉過去的總角度是賽道決定的，
-   * 鏡頭遲早要轉完，不然就是愈落愈後面。所以這裡量的是短彎的尖峰。 */
-  const SHORT = Math.round(0.4 / FRAME);
-  const capped = sweep(2.0, SHORT, 0, 0);
-  const loose = sweep(2.0, SHORT, 99, 0);     /* 同一個彎，但上限高到等於沒限速 */
-  ok('head 模式短彎的尖峰轉速真的被砍下來',
-    capped.peakRate < loose.peakRate * 0.72,
-    deg(loose.peakRate) + '°/s → ' + deg(capped.peakRate) + '°/s');
-  ok('「慢一點」砍得比「普通」多',
-    sweep(2.0, SHORT, Render.HEAD_CAM_RATE[0], 0).peakRate < capped.peakRate);
-
-  /* 限速買到的平順是拿「落後」換的，落後不能大到看起來像壞掉 */
-  const fast = sweep(2.4, 600);
-  ok('head 模式就算一路打死方向，落後也在看得下去的範圍',
-    fast.maxLag < 0.9, '最多落後 ' + deg(fast.maxLag) + ' 度');
-  ok('head 模式打死方向時畫面不會一格一格地頓',
-    fast.judder < 0.02, '每幀轉動差 ' + deg(fast.judder) + ' 度');
-  /* 限速一定要配 lagBoost，不然髮夾彎會愈落愈後面、永遠追不回來 */
-  ok('head 模式的落後會收斂，不會愈落愈遠',
-    fast.lagGrowth < 0.02, '後半段還在擴大 ' + deg(fast.lagGrowth) + ' 度');
-  ok('head 模式轉完之後鏡頭追得回車頭',
-    fast.settled < 0.01, '停手後還差 ' + deg(fast.settled) + ' 度');
+  /* 滿舵：現在的 C.TURN 上限 */
+  const C = require("../public/js/rules.js").C;
+  const fast = sweep(C.TURN * (1 - C.TURN_SPEED_FALLOFF), 600);
+  /* 滿舵時會落後，那是限速換來的 —— 但要有上限，而且看起來要像甩尾不像壞掉 */
+  ok('滿舵時的落後在看得下去的範圍', fast.maxLag < 0.40, '最多落後 ' + deg(fast.maxLag) + ' 度');
+  /* 關鍵的一條：九成的彎（60 度/秒）不能碰到限速，不然一般過彎就看得出歪掉 */
+  const ninety = sweep(1.05, 600);
+  ok('九成的彎碰不到限速（一般過彎時鏡頭就是鎖在車頭上）',
+    ninety.maxLag < 0.06, '最多落後 ' + deg(ninety.maxLag) + ' 度');
+  ok('限速仍然高於一般過彎、低於滿舵（只砍急甩那一下）',
+    Render.HEAD_CAM.maxRate > 1.05 && Render.HEAD_CAM.maxRate < C.TURN * (1 - C.TURN_SPEED_FALLOFF),
+    Render.HEAD_CAM.maxRate);
+  ok('滿舵時畫面不會一格一格地頓', fast.judder < 0.02, '每幀轉動差 ' + deg(fast.judder) + ' 度');
+  ok('轉完之後鏡頭停在車頭上', fast.settled < 0.01, '還差 ' + deg(fast.settled) + ' 度');
 
   const slow = sweep(0, 300);
-  ok('head 模式不轉方向時鏡頭完全不動', slow.judder < 1e-9 && slow.maxLag < 1e-9);
-
-  /* 調慢那一段要真的比較慢，調快那一段要真的比較快 */
-  const slowCap = sweep(2.4, 600, Render.HEAD_CAM_RATE[0]);
-  const fastCap = sweep(2.4, 600, Render.HEAD_CAM_RATE[2]);
-  ok('「慢一點」轉得比「普通」慢、「快一點」轉得比「普通」快',
-    slowCap.peakRate < fast.peakRate && fast.peakRate < fastCap.peakRate,
-    [slowCap, fast, fastCap].map(r => deg(r.peakRate) + '°/s').join(' < '));
+  ok('不轉方向時鏡頭完全不動', slow.judder < 1e-9 && slow.maxLag < 1e-9);
 
   /* 前饋量要跟濾波的時間常數配起來，不然不是落後就是超前 */
-  ok('head 模式的前饋量與濾波時間常數相當',
+  ok('前饋量與濾波時間常數相當',
     Math.abs(Render.HEAD_CAM.lead - Render.HEAD_CAM.tau) < Render.HEAD_CAM.tau * 0.5,
     'lead=' + Render.HEAD_CAM.lead + ' tau=' + Render.HEAD_CAM.tau);
 }
 
-/* ---------- 鏡頭阻尼器：過彎時的行為 ---------- */
-{
-  const Y = Render.CAM_YAW;
-  const DT = 1 / 60;
-  const un = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
-
-  /* 1. 一路右彎：轉速不能超過上限（落後不多的時候） */
-  let cam = { h: 0, rate: 0 }, target = 0, over = 0, maxLag = 0;
-  for (let i = 0; i < 600; i++) {
-    target += 0.6 * DT;                      /* 賽道以 0.6 弧度／秒轉 */
-    const before = cam.h;
-    Render.stepCamYaw(cam, target, DT, 0.30);
-    const rate = Math.abs(un(cam.h - before)) / DT;
-    maxLag = Math.max(maxLag, Math.abs(un(target - cam.h)));
-    if (i > 60 && rate > Y.maxRate * 1.02 && Math.abs(un(target - cam.h)) < Y.lagMax) over++;
-  }
-  ok('定速過彎時轉速不超過上限', over === 0, over + ' 幀超速');
-  ok('定速過彎時不會愈落愈遠', maxLag < 1.2, '最多落後 ' + (maxLag * 180 / Math.PI).toFixed(0) + ' 度');
-
-  /* 2. S 彎：目標來回擺，鏡頭永遠不可以往離目標更遠的方向轉 */
-  cam = { h: 0, rate: 0 };
-  let wrongWay = 0, overshoot = 0;
-  for (let i = 0; i < 1200; i++) {
-    const t = i * DT;
-    target = Math.sin(t * 1.6) * 0.9;        /* 連續 S 彎 */
-    const dh = un(target - cam.h);
-    const before = cam.h;
-    Render.stepCamYaw(cam, target, DT, 0.30);
-    const move = un(cam.h - before);
-    if (Math.abs(dh) > 0.02 && Math.abs(move) > 1e-9 && move * dh < 0) wrongWay++;
-    if (Math.abs(move) > Math.abs(dh) + 1e-9) overshoot++;
-  }
-  ok('S 彎時鏡頭不會往反方向轉', wrongWay === 0, wrongWay + ' 幀轉錯邊');
-  ok('鏡頭不會一次轉過頭', overshoot === 0, overshoot + ' 幀衝過頭');
-
-  /* 3. 髮夾：落後很多時上限要放寬，不然永遠追不上 */
-  cam = { h: 0, rate: 0 };
-  for (let i = 0; i < 240; i++) Render.stepCamYaw(cam, 2.4, DT, 0.30);
-  ok('落後很多時追得回來', Math.abs(un(2.4 - cam.h)) < 0.05,
-    '還差 ' + (Math.abs(un(2.4 - cam.h)) * 180 / Math.PI).toFixed(1) + ' 度');
-
-  /* 4. 到位之後要停住，不可以在死區裡來回晃 */
-  cam = { h: 0, rate: 0 };
-  for (let i = 0; i < 300; i++) Render.stepCamYaw(cam, 0.5, DT, 0.30);
-  const settled = cam.h;
-  for (let i = 0; i < 60; i++) Render.stepCamYaw(cam, 0.5, DT, 0.30);
-  ok('停下來之後不再抖', Math.abs(cam.h - settled) < 1e-6 && Math.abs(cam.rate) < 1e-6);
-
-  /* 5. 跨過 ±180 度不可以整個翻半圈 */
-  cam = { h: Math.PI - 0.05, rate: 0 };
-  let flip = 0;
-  for (let i = 0; i < 120; i++) {
-    const before = cam.h;
-    Render.stepCamYaw(cam, -Math.PI + 0.05, DT, 0.30);
-    if (Math.abs(un(cam.h - before)) > 0.2) flip++;
-  }
-  ok('跨過 ±180 度不會翻半圈', flip === 0 && Math.abs(un(cam.h - (-Math.PI + 0.05))) < 0.05);
-}
 ok('太近的對手與場景物件會淡出或不畫', /淡出/.test(app));
 ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(app) && /G\.lite/.test(app));
 

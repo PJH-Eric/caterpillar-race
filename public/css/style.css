@@ -506,50 +506,73 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   .rr-buttons { grid-template-columns: 1fr 1fr 1fr; }
 }
 
+/* ---- 起跑燈架 ----
+   掛在畫面上方：地平線在畫面高度三分之一處（Render.HORIZON），
+   燈架整個收在那條線以上的天空帶裡，所以不會蓋到路面與毛毛蟲。
+   水平置中，左邊的資訊面板與右上的小地圖都不會被擋到。
+
+   尺寸一律 vmin：直向橫向、手機平板桌機共用同一組數字，
+   橫向時 vmin＝高，所以 5vmin 起算 ＋ 燈架約 8vmin 高，落在 33% 之內。 */
 .countdown {
   position: absolute; inset: 0; z-index: 20;
-  display: grid; place-items: center; align-content: center; gap: 2.5vmin;
+  display: grid; justify-items: center; align-content: start;
+  gap: 1.6vmin;
+  padding-top: calc(var(--safe-t) + 5vmin);
   pointer-events: none;
 }
 .countdown[hidden] { display: none; }
 
-/* ---- 起跑燈架 ----
-   尺寸用 vmin：直的橫的、手機平板桌機都是同一組數字，
-   燈架永遠佔畫面短邊的固定比例，不會在橫向變成一條細線。 */
-.cd-gantry {
-  display: flex; gap: 1.8vmin;
-  padding: 2.2vmin 2.6vmin;
-  background: #1C1F24;
-  border: 0.5vmin solid #0E1013;
-  border-radius: 2.2vmin;
-  box-shadow: 0 1.2vmin 0 rgba(0,0,0,.28), inset 0 0 2vmin rgba(0,0,0,.55);
+/* 吊桿：兩根短掛勾，讓燈架看起來是「吊著」而不是浮著 */
+.cd-rig { display: grid; justify-items: center; }
+.cd-hang { display: flex; gap: 9vmin; margin-bottom: -0.2vmin; }
+.cd-hang i {
+  display: block; width: 0.7vmin; height: 2.2vmin;
+  background: linear-gradient(#5A626D, #31363D);
+  border-radius: 0.35vmin 0.35vmin 0 0;
 }
-.cd-pod { display: grid; gap: 1.2vmin; }
+
+.cd-gantry {
+  display: flex; gap: 1.5vmin;
+  padding: 1.3vmin 1.6vmin;
+  background: linear-gradient(#2A2F36, #171A1F);
+  border: 0.35vmin solid #0C0E11;
+  border-radius: 1.5vmin;
+  box-shadow: 0 0.7vmin 1.4vmin rgba(0,0,0,.35),
+              inset 0 0.25vmin 0 rgba(255,255,255,.10);
+}
+
+.cd-pod { display: grid; }
 .cd-pod i {
   display: block;
-  /* 三組燈的燈架比較窄，所以每顆燈可以大一點，遠看更清楚 */
-  width: 9vmin; height: 9vmin;
+  width: 5vmin; height: 5vmin;
   border-radius: 50%;
-  /* 沒亮的燈：暗紅玻璃，看得出「這裡有一顆燈」但明顯是熄的 */
-  background: radial-gradient(circle at 35% 30%, #4A1416, #2A0B0D 70%);
-  box-shadow: inset 0 0 1.2vmin rgba(0,0,0,.8);
-  transition: background .08s linear, box-shadow .08s linear;
+  /* 熄著的燈：暗紅玻璃 ＋ 內凹，看得出「這裡有一顆燈」但明顯沒亮 */
+  background: radial-gradient(circle at 36% 30%, #4E1A1C, #240A0C 72%);
+  box-shadow: inset 0 0.25vmin 0.7vmin rgba(0,0,0,.85),
+              inset 0 -0.2vmin 0.3vmin rgba(255,255,255,.06);
+  transition: background .07s linear, box-shadow .07s linear;
 }
-/* 亮起來的燈：紅玻璃 ＋ 外溢的光暈 */
+/* 亮起來的燈：紅玻璃 ＋ 高光 ＋ 往外溢的光暈 */
 .cd-pod.on i {
-  background: radial-gradient(circle at 35% 30%, #FFE2DE, #FF3B30 45%, #C1100A 100%);
-  box-shadow: 0 0 2.4vmin rgba(255,59,48,.85), 0 0 5vmin rgba(255,59,48,.45),
-              inset 0 0 0.8vmin rgba(255,255,255,.35);
+  background:
+    radial-gradient(circle at 34% 26%, rgba(255,255,255,.95) 0 8%, rgba(255,255,255,0) 42%),
+    radial-gradient(circle at 50% 50%, #FF6A5E, #F42B1E 52%, #B60D08 100%);
+  box-shadow: 0 0 1.6vmin rgba(255,64,48,.9),
+              0 0 4vmin rgba(255,64,48,.5),
+              inset 0 0 0.6vmin rgba(255,255,255,.4);
 }
+
+/* 開跑：字放在燈架正下方，還在天空帶裡，不會壓到毛毛蟲 */
 .cd-go {
-  font-size: clamp(2.4rem, 12vw, 6.5rem); font-weight: 800;
-  color: #fff; text-shadow: 0 5px 0 rgba(0,0,0,.2), 0 0 3vmin rgba(88,240,120,.85);
-  animation: cdGo .3s cubic-bezier(.2, 1.6, .4, 1);
+  font-size: clamp(1.4rem, 5.2vmin, 3rem); font-weight: 800; letter-spacing: .04em;
+  color: #fff;
+  text-shadow: 0 0.3vmin 0 rgba(0,0,0,.28), 0 0 2vmin rgba(88,240,120,.9);
+  animation: cdGo .28s cubic-bezier(.2, 1.6, .4, 1);
 }
 .cd-go[hidden] { display: none; }
-@keyframes cdGo { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes cdGo { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
-/* 燈架本身就是一個「越來越多燈亮」的動畫，減少動態時不需要再收斂 */
+/* 燈號本身沒有語意，另外播報文字（視覺上藏起來） */
 .cd-sr {
   position: absolute; width: 1px; height: 1px;
   overflow: hidden; clip-path: inset(50%); white-space: nowrap;
