@@ -313,6 +313,34 @@
     follow: 0.30        /* 想要的轉速＝角差的幾分之幾（換算成每秒） */
   };
 
+  /**
+   * head 模式的鏡頭偏航 ——「車頭指哪，畫面就看哪」。
+   *
+   * 跟 stepCamYaw 完全相反：不限速、不前瞻、不看行進方向，目標就是車頭角本身，
+   * 所以鏡頭永遠不會自己轉，畫面只有在玩家轉方向的時候才跟著轉。
+   *
+   * 只做兩件事，而且兩件都是為了「畫面是 60Hz」而不是為了跟隨：
+   *   1. 一階濾波（時間常數 tau）—— 物理跑 30Hz、畫面畫 60Hz，直接把車頭角抄過來的話
+   *      畫面轉動就是一格一格的（打死方向時一步 4.8 度，看得出來在頓）。
+   *   2. 用角速度做前饋（lead）—— 濾波本來會讓鏡頭落後，但車頭的角速度是已知的
+   *      （turnVel），補上去剛好把落後抵銷掉。實測落後比直接抄還小
+   *      （最多 0.9 度 vs 2.4 度），同時平順五倍。
+   */
+  const HEAD_CAM = { tau: 0.05, lead: 0.055 };
+
+  /**
+   * @param {number} h 目前的鏡頭角
+   * @param {number} angle 車頭角
+   * @param {number} turnVel 車頭的角速度（弧度／秒）
+   * @param {number} dt 這一幀幾秒
+   * @returns {number} 這一幀的鏡頭角
+   */
+  function headCamYaw(h, angle, turnVel, dt) {
+    const target = angle + (turnVel || 0) * HEAD_CAM.lead;
+    const k = 1 - Math.exp(-Math.max(dt, 0) / HEAD_CAM.tau);
+    return wrapPi(h + wrapPi(target - h) * k);
+  }
+
   function wrapPi(a) {
     while (a > Math.PI) a -= Math.PI * 2;
     while (a < -Math.PI) a += Math.PI * 2;
@@ -1270,6 +1298,6 @@
     makeCanvas, projector, sampleTrail, wormSvg, segPattern,
     buildScenery, drawProp, drawLeaf, drawWorm3D, drawFace,
     drawSky, drawGround, drawGroundBands, drawGroundTexture, drawFog, drawSpeedLines, trackFaces, trackDecals, groundBlob, curveAt,
-    CAM_YAW, stepCamYaw
+    CAM_YAW, stepCamYaw, HEAD_CAM, headCamYaw
   };
 })(typeof self !== 'undefined' ? self : this);

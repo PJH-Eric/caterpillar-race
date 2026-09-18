@@ -678,7 +678,7 @@
    *   track  跟前方賽道的方向（預設）—— 修方向的左右擺完全不會傳到畫面
    *   chase  跟毛毛蟲的車頭 —— 比較跟手，但快速修方向時畫面會跟著晃
    */
-  const CAM_YAW_LERP = { track: 0.16, chase: 0.30 };
+  const CAM_YAW_LERP = { track: 0.16, chase: 0.30 };   /* head 模式不過阻尼器，所以沒有值 */
   const CAM_POS_LERP = 0.10;     /* 位置的跟隨速度，慢一點才不會被身體擺動帶著抖 */
 
   /* 鏡頭轉動的阻尼住在 Render.CAM_YAW / Render.stepCamYaw（放那裡測試才跑得到）。
@@ -762,6 +762,9 @@
   }
 
   function camTargetAngle(me, snapTo) {
+    /* head 模式：鏡頭就是車頭，沒有前瞻、沒有行進方向平滑 —— 鏡頭不會自己轉，
+     * 畫面只有在玩家轉方向的時候才跟著轉，跟一般賽車的車後視角一樣。 */
+    if (G.settings.camMode === 'head') return me.angle;
     if (G.settings.camMode === 'chase') return chaseAxis(me, snapTo);
     const nodes = G.track.nodes, n = nodes.length;
     const ahead = Math.round((70 + me.speed * 0.4) / Tracks.NODE_STEP);
@@ -784,7 +787,14 @@
      * 因為位置與偏航用的是同一個角度，毛毛蟲一定會落在畫面正中央 ——
      * 不管是過彎、被撞、還是倒退，視角都固定在自己身上。 */
     const axis = camTargetAngle(me, snapTo);
-    if (snapTo || G.settings.reduceMotion) {
+    /* head 模式不過阻尼器：阻尼器一限速，轉彎時鏡頭就會落在車頭後面（看起來
+     * 像鏡頭自己在追車），改用 headCamYaw 直接鎖上去，才是「車頭指哪、畫面就看哪」。
+     * 這一支排在 reduceMotion 前面是故意的：head 模式的鏡頭本來就不會自己動，
+     * headCamYaw 比直接抄車頭角還平順、落後也更小，對會暈的人只有好處。 */
+    if (!snapTo && G.settings.camMode === 'head') {
+      G.cam.h = root.Render.headCamYaw(G.cam.h, axis, me.turnVel, dt);
+      G.camRate = 0;
+    } else if (snapTo || G.settings.reduceMotion) {
       G.cam.h = axis;
       G.camRate = 0;
     } else {

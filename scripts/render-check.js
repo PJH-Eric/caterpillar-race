@@ -114,6 +114,67 @@ ok('鏡頭位置與偏航用同一個軸線（毛毛蟲永遠釘在畫面正中�
 ok('鏡頭位置不做額外平滑（不然毛毛蟲會忽大忽小）', !/G\.cam\.x \+=/.test(app));
 ok('鏡頭旋轉有限速', /stepCamYaw/.test(app) && Render.CAM_YAW.maxRate > 0);
 
+/* ---------- head 模式：鏡頭鎖死在車頭上 ---------- */
+{
+  const html = read('public/index.html');
+  const store = read('public/js/storage.js');
+  ok('有「鎖定車頭」的鏡頭模式可以選', /value="head"/.test(html));
+  ok('預設就是鎖定車頭', /camMode: 'head'/.test(store));
+  ok('舊存檔會被帶到鎖定車頭（改 DEFAULTS 對已經有存檔的人沒用）',
+    /VERSION/.test(store) && /function migrate/.test(store));
+  {
+    const S = require('../public/js/storage.js').Store;
+    const withStore = raw => {
+      global.localStorage = { _v: raw === null ? null : JSON.stringify(raw),
+        getItem() { return this._v; }, setItem(k, x) { this._v = x; } };
+      return S.load();
+    };
+    ok('舊存檔的 chase 會帶成 head', withStore({ camMode: 'chase' }).camMode === 'head');
+    ok('自己挑過 track 的不動', withStore({ camMode: 'track' }).camMode === 'track');
+    ok('轉換過之後又自己挑 chase 就不再被蓋掉',
+      withStore({ camMode: 'chase', v: 2 }).camMode === 'chase');
+    ok('全新玩家就是 head', withStore(null).camMode === 'head');
+    delete global.localStorage;
+  }
+  ok('head 模式直接回傳車頭角，不混賽道前瞻也不平滑行進方向',
+    app.includes("camMode === 'head') return me.angle"));
+  ok('head 模式不過鏡頭阻尼器（不然轉彎時鏡頭會落在車頭後面）',
+    app.includes("G.cam.h = root.Render.headCamYaw(") && !app.includes('CAM_YAW_LERP.head'));
+
+  /* 30Hz 物理 + 60Hz 繪製：鏡頭不能一格一格地頓，也不能落在車頭後面 */
+  const un = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+  const TICK = 1 / 30, FRAME = 1 / 60;
+  function sweep(rate, frames) {
+    let angle = 0, turnVel = 0, acc = 0, h = 0;
+    let judder = 0, maxLag = 0, prevStep = 0;
+    for (let f = 0; f < frames; f++) {
+      acc += FRAME;
+      while (acc >= TICK) { turnVel = rate; angle = un(angle + turnVel * TICK); acc -= TICK; }
+      const before = h;
+      h = Render.headCamYaw(h, angle, turnVel, FRAME);
+      const step = Math.abs(un(h - before));
+      if (f > 30) {
+        judder = Math.max(judder, Math.abs(step - prevStep));
+        maxLag = Math.max(maxLag, Math.abs(un(angle + turnVel * acc - h)));   /* 對次刻度後的真實車頭角 */
+      }
+      prevStep = step;
+    }
+    return { judder, maxLag };
+  }
+  const fast = sweep(2.4, 600);     /* 打死方向 */
+  ok('head 模式打死方向時畫面不會一格一格地頓',
+    fast.judder < 0.02, '每幀轉動差 ' + (fast.judder * 180 / Math.PI).toFixed(2) + ' 度');
+  ok('head 模式鏡頭不會落在車頭後面',
+    fast.maxLag < 0.03, '最多落後 ' + (fast.maxLag * 180 / Math.PI).toFixed(2) + ' 度');
+  const slow = sweep(0, 300);
+  ok('head 模式不轉方向時鏡頭完全不動', slow.judder < 1e-9 && slow.maxLag < 1e-9);
+
+  /* 前饋量要跟濾波的時間常數配起來，不然不是落後就是超前 */
+  ok('head 模式的前饋量與濾波時間常數相當',
+    Math.abs(Render.HEAD_CAM.lead - Render.HEAD_CAM.tau) < Render.HEAD_CAM.tau * 0.5,
+    'lead=' + Render.HEAD_CAM.lead + ' tau=' + Render.HEAD_CAM.tau);
+}
+
 /* ---------- 鏡頭阻尼器：過彎時的行為 ---------- */
 {
   const Y = Render.CAM_YAW;
