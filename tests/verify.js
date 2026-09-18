@@ -824,6 +824,42 @@ group('十二、線上預測（predicted 模式）');
   ok('衝刺賽道的預測那一份也不自己完賽', !sprint.racers[0].finished);
 }
 
+group('十三、速度顯示（km/h）');
+{
+  const C = Rules.C;
+  ok('有定義世界單位對應的公尺數', typeof C.UNIT_M === 'number' && C.UNIT_M > 0, C.UNIT_M);
+  /* km/h = 單位／秒 × 公尺／單位 × 3.6 */
+  ok('換算公式正確', Math.abs(Rules.kmh(100) - 100 * C.UNIT_M * 3.6) < 1e-9);
+  ok('零就是零', Rules.kmh(0) === 0);
+  ok('倒退顯示正值（儀表不顯示負速度）', Rules.kmh(-100) === Rules.kmh(100));
+  ok('沒給值也不會炸', Rules.kmh() === 0 && Rules.kmh(undefined) === 0);
+
+  /* 讀數要落在賽車該有的範圍 —— 尺度訂錯的話會變成 5 km/h 或 500 km/h */
+  const base = Rules.kmh(C.BASE_SPEED);
+  ok('基礎速度的讀數像賽車（30～90 km/h）', base > 30 && base < 90, base.toFixed(0) + ' km/h');
+  const top = Rules.kmh(C.BASE_SPEED * (1 + C.MAX_BOOST) * C.SURFACE_SPEED[Tracks.SURFACE.DOWN]);
+  ok('極速的讀數不誇張（90～200 km/h）', top > 90 && top < 200, top.toFixed(0) + ' km/h');
+  ok('泥巴比跑道慢得看得出來',
+    Rules.kmh(C.BASE_SPEED * C.SURFACE_SPEED[Tracks.SURFACE.MUD]) < base * 0.6);
+
+  /* 這個值只影響顯示。改它不該動到任何物理。 */
+  const before = (() => {
+    const st = race();
+    run(st, 300, () => ({ steer: 0, gas: 1, man: 1, use: false }));
+    return [st.racers[0].x, st.racers[0].y, st.racers[0].speed];
+  })();
+  const saved = C.UNIT_M;
+  C.UNIT_M = saved * 7;
+  const after = (() => {
+    const st = race();
+    run(st, 300, () => ({ steer: 0, gas: 1, man: 1, use: false }));
+    return [st.racers[0].x, st.racers[0].y, st.racers[0].speed];
+  })();
+  C.UNIT_M = saved;
+  ok('UNIT_M 只影響顯示，不影響物理',
+    Math.abs(before[0] - after[0]) < 1e-9 && Math.abs(before[2] - after[2]) < 1e-9);
+}
+
 /* ================================================================ */
 console.log('\n規則核心：' + pass + ' 通過，' + fail + ' 失敗');
 process.exit(fail ? 1 : 0);

@@ -469,7 +469,7 @@
     G.lastResults = null;
     G.countShown = -1;
 
-    G.hud = { item: undefined, standings: '', rank: -1, lap: -1, note: null, frame: 0 };
+    G.hud = { item: undefined, standings: '', rank: -1, lap: -1, kmh: -1, note: null, frame: 0 };
     $('chat-dock').hidden = (G.mode !== 'online');
     $('my-rank-total').textContent = '/' + G.state.racers.length;
     /* 衝刺賽道沒有圈數，圈數欄改成走完多少路 */
@@ -1019,14 +1019,71 @@
     ctx.strokeStyle = G.theme.roadEdge; ctx.lineWidth = 62;
     ctx.beginPath();
     G.track.nodes.forEach((nd, i) => ctx[i ? 'lineTo' : 'moveTo'](nd.x, nd.y));
-    ctx.closePath(); ctx.stroke();
-    ctx.strokeStyle = G.theme.road; ctx.lineWidth = 44; ctx.stroke();
-    const n0 = G.track.nodes[0];
-    ctx.strokeStyle = '#2C2C2C'; ctx.lineWidth = 16;
-    ctx.beginPath();
-    ctx.moveTo(n0.x + n0.nx * n0.w, n0.y + n0.ny * n0.w);
-    ctx.lineTo(n0.x - n0.nx * n0.w, n0.y - n0.ny * n0.w);
+    /* 衝刺賽道是一條開放路徑，頭尾不相接 —— closePath 會憑空畫出一段
+     * 「從終點連回起點」的路，小地圖上看起來就多一條不存在的捷徑。 */
+    if (!G.track.open) ctx.closePath();
     ctx.stroke();
+    ctx.strokeStyle = G.theme.road; ctx.lineWidth = 44; ctx.stroke();
+
+    /**
+     * 在某個節點上畫一條橫跨路面的格子旗。
+     *
+     * 原本是一條純深灰的粗線，在 88～120 像素的小地圖上就是一個黑點，
+     * 看不出是終點線。格子旗是這個東西的通用符號，而且黑白交錯在任何
+     * 底色上都看得見（純黑線在夜間主題的路面上幾乎消失）。
+     *
+     * @param {object} nd 節點
+     * @param {string} [tint] 不給就是黑白格（終點）；給了就用它當深色（起點用綠）
+     */
+    function flag(nd, tint) {
+      const COLS = 6;                      /* 橫向切幾格 */
+      const ROWS = 2;                      /* 縱向兩排，交錯才看得出是格子 */
+      const halfW = nd.w;
+      const cw = (halfW * 2) / COLS;
+      const ch = 13;                       /* 每一排沿賽道方向的厚度（世界單位） */
+      const dark = tint || '#23262B';
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          ctx.fillStyle = ((r + c) % 2 === 0) ? dark : '#F7F9FB';
+          /* 沿法線橫跨路面，沿切線疊兩排 */
+          const off = -halfW + c * cw;
+          const along = (r - ROWS / 2) * ch;
+          const ax = nd.x + nd.nx * off + nd.tx * along;
+          const ay = nd.y + nd.ny * off + nd.ty * along;
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(ax + nd.nx * cw, ay + nd.ny * cw);
+          ctx.lineTo(ax + nd.nx * cw + nd.tx * ch, ay + nd.ny * cw + nd.ty * ch);
+          ctx.lineTo(ax + nd.tx * ch, ay + nd.ty * ch);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      /* 外框：把格子旗跟路面分開，小尺寸下邊界才清楚 */
+      ctx.strokeStyle = 'rgba(0,0,0,.45)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(nd.x + nd.nx * halfW - nd.tx * ch, nd.y + nd.ny * halfW - nd.ty * ch);
+      ctx.lineTo(nd.x - nd.nx * halfW - nd.tx * ch, nd.y - nd.ny * halfW - nd.ty * ch);
+      ctx.lineTo(nd.x - nd.nx * halfW + nd.tx * ch, nd.y - nd.ny * halfW + nd.ty * ch);
+      ctx.lineTo(nd.x + nd.nx * halfW + nd.tx * ch, nd.y + nd.ny * halfW + nd.ty * ch);
+      ctx.closePath();
+      ctx.stroke();
+    }
+
+    /* 終點線的位置要用 startNode，不是 nodes[0]。
+     *
+     * chooseStartNode 會把起跑線挑到一段比較直的路上，所以兩者通常不一樣 ——
+     * 二十五張賽道有十五張不一樣，最遠差了 2576 單位（快兩千公尺），
+     * 小地圖上的終點線就標在賽道的另一頭。 */
+    const nodes = G.track.nodes;
+    if (G.track.open) {
+      /* 衝刺賽道：起點在頭、終點在尾，兩個都要標，不然看不出要往哪邊跑 */
+      flag(nodes[0], '#2F8F4E');                       /* 綠色＝起點 */
+      flag(nodes[nodes.length - 1]);                   /* 格子旗＝終點 */
+    } else {
+      flag(nodes[G.track.startNode]);
+    }
     return out;
   }
 
@@ -1204,6 +1261,12 @@
       : (me.started ? Math.max(0, stoppedAt - me.lapStart) : 0);
     $('lap-time').textContent = lapTime.toFixed(2);
     $('race-total-time').textContent = Math.max(0, st.raceT).toFixed(2);
+
+    /* 現在的速度。整數變了才動 DOM —— 一秒六十次寫 textContent 會讓
+     * 這一欄跟旁邊的計時一起重排（道具那一段就是踩過這個坑）。
+     * 衝線之後定在 0，不要繼續顯示殘留的速度。 */
+    const kmh = (me.finished || st.phase !== 'racing') ? 0 : Math.round(Rules.kmh(me.speed));
+    if (hud.kmh !== kmh) { hud.kmh = kmh; $('my-speed').textContent = String(kmh); }
 
     /* 持有道具。
      * 這一段本來每一幀都重寫 innerHTML（而且裡面還有一整個 SVG）——

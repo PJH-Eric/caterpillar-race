@@ -257,6 +257,100 @@ ok('房間人數上限使用客製化下拉選單',
     net.includes('err > SNAP_HARD || sr.ghost)') && !net.includes('|| sr.fin) {'));
 }
 
+/* ---------- 速度顯示 ---------- */
+{
+  ok('資訊欄有現在速度', ids.has('my-speed'));
+  ok('單位寫 km/h', html.includes('<span id="my-speed">0</span><small>km/h</small>'));
+  ok('速度跟計時排在同一區（sum-times）',
+    html.indexOf('my-speed') > html.indexOf('sum-times') &&
+    html.indexOf('my-speed') < html.indexOf('sum-item'));
+  ok('速度用 Rules.kmh 換算，不在畫面端自己乘', app.includes('Rules.kmh(me.speed)'));
+  /* 一秒六十次寫 textContent 會讓整欄重排（道具那一段踩過這個坑） */
+  ok('整數沒變就不動 DOM', app.includes('hud.kmh !== kmh'));
+  ok('hud 有 kmh 的初始值（不然第一幀不會寫進去）', app.includes('kmh: -1'));
+  ok('衝線後歸零，不留殘值', app.includes("st.phase !== 'racing') ? 0"));
+}
+
+/* ---------- 小地圖的起終點旗 ---------- */
+{
+  const Tracks2 = require('../public/js/tracks.js');
+
+  /* 把 buildMiniArt 整段挖出來跑：它畫在哪裡只能真的畫一次才知道。
+   * 這裡餵一個假的 ctx，記下所有 fill 出來的點（旗子），
+   * 路面中心線是 stroke、fillStyle 是空的，所以分得開。 */
+  const src = code('public/js/app.js');
+  const at = src.indexOf('function buildMiniArt()');
+  let depth = 0, k = src.indexOf('{', at), end = k;
+  for (; end < src.length; end++) {
+    if (src[end] === '{') depth++;
+    else if (src[end] === '}') { depth--; if (!depth) break; }
+  }
+  const body = src.slice(at, end + 1);
+  ok('挖得出 buildMiniArt', body.length > 200 && body.includes('flag('));
+
+  function flagsOf(track) {
+    const pts = [];
+    const ctx = {
+      translate() {}, scale() {}, beginPath() {}, closePath() {}, stroke() {}, fill() {},
+      moveTo(x, y) { pts.push([x, y, ctx.fillStyle]); },
+      lineTo(x, y) { pts.push([x, y, ctx.fillStyle]); },
+      fillStyle: '', strokeStyle: '', lineWidth: 0, lineJoin: '', lineCap: ''
+    };
+    const G = { track: track, theme: { road: '#aaa', roadEdge: '#fff' } };
+    const Render = { makeCanvas: () => ({ getContext: () => ctx }) };
+    const fn = new Function('G', 'root', 'return (' + body + ')')(G, { Render: Render });
+    fn();
+    return pts.filter(q => q[2]);          /* 只留旗子（有填色的） */
+  }
+
+  const misplaced = [], missing = [], stale = [];
+  let flags = 0;
+  for (const def of Tracks2.TRACKS) {
+    const t = Tracks2.build(def);
+    const pts = flagsOf(t);
+    /* 該有幾面：環形一面（起終點同一個地方），衝刺兩面（頭跟尾） */
+    const want = t.open
+      ? [t.nodes[0], t.nodes[t.nodes.length - 1]]
+      : [t.nodes[t.startNode]];
+    for (const w of want) {
+      flags++;
+      let near = Infinity;
+      for (const q of pts) near = Math.min(near, Math.hypot(q[0] - w.x, q[1] - w.y));
+      if (near > w.w * 1.6) misplaced.push(def.id + ' 旗子離目標 ' + Math.round(near));
+    }
+    if (!pts.length) missing.push(def.id);
+    /* 終點線本來畫在 nodes[0]，而起跑線其實在 startNode ——
+     * 二十五張有十五張不一樣，最遠差 2576 單位。這條確保不會改回去。 */
+    if (!t.open && t.startNode !== 0) {
+      const a = t.nodes[0];
+      const away = Math.hypot(a.x - t.nodes[t.startNode].x, a.y - t.nodes[t.startNode].y);
+      if (away > 200) {
+        let cnt = 0;
+        for (const q of pts) if (Math.hypot(q[0] - a.x, q[1] - a.y) < a.w * 0.8) cnt++;
+        if (cnt > 4) stale.push(def.id);
+      }
+    }
+  }
+  ok('每張賽道都有起終點旗', missing.length === 0, missing.join(', '));
+  ok('起終點旗畫在正確的節點上（不是 nodes[0]）', misplaced.length === 0,
+    misplaced.slice(0, 3).join('; '));
+  ok('沒有賽道還把旗子畫在 nodes[0]', stale.length === 0, stale.slice(0, 3).join(', '));
+  ok('驗到足夠多面旗子', flags >= 30, flags + ' 面');
+
+  /* 衝刺賽道頭尾不相接，closePath 會憑空生出一段「終點連回起點」的路 */
+  ok('衝刺賽道不 closePath（不然小地圖多一條不存在的路）',
+    src.includes('if (!G.track.open) ctx.closePath();'));
+  ok('衝刺賽道起點與終點都有標（看得出往哪邊跑）',
+    src.includes("flag(nodes[0], '#2F8F4E')") &&
+    src.includes('flag(nodes[nodes.length - 1])'));
+
+  /* 一條純深灰粗線在 88～120 像素的小地圖上只是個黑點，
+   * 而且純黑在夜間主題的路面上幾乎看不見 */
+  ok('終點線是黑白格子旗，不是一條線',
+    src.includes('COLS') && src.includes('#F7F9FB') && src.includes('(r + c) % 2'));
+  ok('格子旗有外框（小尺寸下邊界才清楚）', src.includes("rgba(0,0,0,.45)"));
+}
+
 /* ---------- 9. 賽道分頁 ---------- */
 {
   const Tracks = require('../public/js/tracks.js');

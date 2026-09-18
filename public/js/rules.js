@@ -28,6 +28,17 @@
     COUNTDOWN: 3.0,            /* 開跑前倒數 */
     FINISH_GRACE: 10.0,        /* 第一名完賽後，其他人還有 10 秒可以衝線 */
 
+    /* 一個世界單位等於幾公尺。
+    *
+    * 遊戲內部只有「單位／秒」，要顯示 km/h 就得先決定尺度。
+    * 取 1 單位 ＝ 10 公分，理由是這樣其他尺寸都說得通：
+    *   路寬平均 130 單位 ＝ 13 公尺（八隻並排的卡通賽道，合理）
+    *   碰撞半徑 11 單位 ＝ 1.1 公尺（毛毛蟲本人就這麼大隻）
+    * 換出來的速度也落在賽車該有的範圍：
+    *   基礎速度 150 ＝ 54 km/h｜泥巴 0.45 倍 ＝ 24｜果汁＋下坡最快約 124
+    * 這個值只影響顯示，不影響任何物理。 */
+    UNIT_M: 0.1,
+
     /* 車體 */
     BODY_R: 11,                /* 碰撞半徑 */
     SEG: 7,                    /* 身體節數（畫面用，也決定黏液擺放距離） */
@@ -729,10 +740,15 @@
     }));
   }
 
+  /** 內部速度（單位／秒）換成 km/h。只給顯示用，不影響任何物理。 */
+  function kmh(speed) {
+    return Math.abs(speed || 0) * C.UNIT_M * 3.6;
+  }
+
   return {
     C, DIFFICULTY, DIFFICULTY_LIST,
     createRace, step, snapshot, results,
     useItem, applySlow, updateRanks, updateProgress, markGhost,
-    nearestAhead, speedFactor, surfaceFor, moveToward, clamp
+    nearestAhead, speedFactor, surfaceFor, moveToward, clamp, kmh
   };
 });
