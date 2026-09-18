@@ -113,6 +113,9 @@ ok('鏡頭用平滑過的行進方向退到後面', /cam\.h/.test(app));
 ok('鏡頭位置與偏航用同一個軸線（毛毛蟲永遠釘在畫面正中央）',
   /G\.cam\.a = G\.cam\.h/.test(app) && /Math\.cos\(G\.cam\.h\) \* back/.test(app));
 ok('鏡頭位置不做額外平滑（不然毛毛蟲會忽大忽小）', !/G\.cam\.x \+=/.test(app));
+/* me.speed 是 hypot，永遠正的 —— 拿它捲地面條紋，後退時條紋會反著動 */
+ok('地面條紋用「沿鏡頭方向的速度分量」，後退才會倒著捲',
+  app.includes('me.vx * Math.cos(G.cam.h)') && !app.includes('+ me.speed * dt'));
 /* 畫面轉多快由車本身的轉向速度決定，不是鏡頭端限速 ——
  * 實測鏡頭限速從 54 降到 14 度/秒，持續過彎的尖峰只從 119 掉到 113，
  * 落後卻從 25 度爆到 94 度。彎要轉的總角度是賽道給的，鏡頭遲早要轉完。 */
@@ -391,24 +394,68 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
     new Set(KINDS.map(k => pics[k].cx.toFixed(2) + ',' + pics[k].cy.toFixed(2))).size === KINDS.length);
   /* 不認得的種類要有退路，不能什麼都不畫 */
   ok('沒見過的標誌種類會畫驚嘆號當退路', pictogram('nonesuch').draws >= 3);
+  /* 隧道原本畫線稿拱門，遠處縮小就糊成一團；改成實心剪影，任何尺寸都讀得出來 */
+  ok('隧道圖示是實心剪影（不是線稿）',
+    /山體/.test(read('public/js/render.js')) && pics.tunnel.draws >= 3);
 
-  /* ---- 左右轉標誌指的方向，必須跟「投影到畫面之後」的方向一致 ----
+  /* ---- 標誌左右的判準：世界的轉向怎麼對應到畫面的左右 ----
    *
-   * 這是整組標誌裡唯一指錯會害到玩家的地方（玩家會照著轉錯邊），
-   * 而且只能這樣驗：玩家看到的左右是投影之後的左右。
-   * 這個投影讓世界 +y 落在畫面右邊，所以世界座標的外積正負跟畫面上的左右
-   * 是鏡像的 —— 拿外積比會跟產生標誌的程式碼犯同一個錯，測試會跟著一起過
-   *（實測就發生過：八十九塊裡六十四塊指反，而外積版的測試全過）。
+   * 這是整組標誌唯一指錯會害到玩家的地方，而且它壞過一次
+   *（89 塊裡 64 塊指反），所以要有回歸測試。
+   *
+   * 測的是「慣例」而不是逐塊比對。逐塊比對做不到：
+   * 畫面上的 x = halfW + r * focal/f，近的點乘上大很多的 s，
+   * 所以「近處微微往左、遠處大幅往右」的複合彎，比較近端與遠端的螢幕 x
+   * 會得到「往左」——那不是牌子錯，是那個量法把橫向位移與透視縮放混在一起了。
+   * 一個彎往哪邊轉的定義就是淨轉向量，程式碼用的也是它（netTurn）。
+   *
+   * 所以這裡用一條合成的彎把慣例釘死：世界逆時針（外積為正）在畫面上
+   * 一定是往右。這條一翻，tracks.js 的 netTurn 正負就要跟著翻。
    */
   {
-    const Tracks3 = require('../public/js/tracks.js');
-    /* 先釘住投影的橫向慣例，這條一變下面的判斷就全部要重看 */
-    const probe = Render.projector({ w: 1280, h: 720 }, { x: 0, y: 0, z: 60, a: 0, fov: 1 });
-    ok('投影：面向 +x 時世界 +y 在畫面右邊（標誌左右的判斷依據）',
-      probe.pt(300, 100, 0).x > 640,
-      'x=' + probe.pt(300, 100, 0).x.toFixed(0));
+    /* 合成一段往世界逆時針彎的路，鏡頭放在起點後面朝彎口看 */
+    const R0 = 400;
+    const arc = [];
+    for (let k = 0; k <= 24; k++) {
+      const th = k * 0.035;                       /* 逆時針 */
+      arc.push({ x: Math.sin(th) * R0, y: R0 - Math.cos(th) * R0 });
+    }
+    /* 起點的切線是 +x，所以鏡頭朝 +x */
+    const P3 = Render.projector({ w: 1280, h: 720 },
+      { x: -140, y: 0, z: 62, a: 0, fov: 1 });
+    /* 外積：起點切線 (1,0) → 末端切線 */
+    const t1 = { x: 1, y: 0 };
+    const last = arc[arc.length - 1], prev = arc[arc.length - 2];
+    const dl = Math.hypot(last.x - prev.x, last.y - prev.y) || 1;
+    const t2 = { x: (last.x - prev.x) / dl, y: (last.y - prev.y) / dl };
+    const cross = t1.x * t2.y - t1.y * t2.x;
+    ok('合成的彎確實是世界逆時針（外積為正）', cross > 0, cross.toFixed(3));
 
-    let total = 0, wrong = [];
+    /* 這段路在畫面上往哪邊？用角度 r/f（透視正規化過，不會被近點放大） */
+    let ang = 0, cnt = 0;
+    for (const q of arc) {
+      const f = P3.fwd(q.x, q.y);
+      if (f < 150) continue;
+      const r = -(q.x - P3.cam.x) * P3.sin + (q.y - P3.cam.y) * P3.cos;
+      if (Math.abs(r) / f > 1.9) break;
+      ang += r / f; cnt++;
+    }
+    ok('量得到足夠的取樣', cnt >= 8, cnt);
+    ok('世界逆時針的彎，在畫面上是往右（標誌左右的判準）', ang / cnt > 0,
+      '平均水平角 ' + (Math.atan(ang / cnt) * 180 / Math.PI).toFixed(1) + ' 度');
+
+    /* tracks.js 就是照這條慣例決定 left／right 的 */
+    const tracksSrc = read('public/js/tracks.js');
+    ok('tracks.js 用淨轉向量決定左右，而且註明了外積為正＝畫面右',
+      tracksSrc.includes('function netTurn') &&
+      tracksSrc.includes('外積為正＝世界逆時針＝畫面上往右') &&
+      tracksSrc.includes("t.net < 0 ? 'left' : 'right'"));
+    ok('幾乎打直的路不立左右轉的牌子', tracksSrc.includes('TURN_MIN_NET'));
+    ok('複合彎不立左右轉的牌子（會指錯）', tracksSrc.includes('TURN_MAX_OPPOSITE'));
+
+    /* 每一塊左右轉的牌子，前面那段路的淨轉向都要夠大而且方向一致 */
+    const Tracks3 = require('../public/js/tracks.js');
+    let total = 0, bad = [];
     for (const def of Tracks3.TRACKS) {
       const t = Tracks3.build(def);
       const n = t.nodes.length;
@@ -416,27 +463,20 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
       for (const sg of t.signs) {
         if (sg.kind !== 'left' && sg.kind !== 'right') continue;
         total++;
-        const nd = at(sg.node);
-        /* 鏡頭擺在標誌那個節點的後面，朝賽道方向看 —— 跟玩家開到這裡時一樣 */
-        const P2 = Render.projector({ w: 1280, h: 720 }, {
-          x: nd.x - nd.tx * 120, y: nd.y - nd.ty * 120, z: 62,
-          a: Math.atan2(nd.ty, nd.tx), fov: 1
-        });
-        /* 往前掃一段，累積路中心偏離畫面中心多少 */
-        let sum = 0, cnt = 0;
-        for (let k = 8; k < 40; k++) {
-          const f = at(sg.node + k);
-          if (P2.fwd(f.x, f.y) < 40) continue;
-          sum += P2.pt(f.x, f.y, 0).x - 640;
-          cnt++;
+        let net = 0, pos = 0, neg = 0;
+        for (let k = 6; k < 44; k++) {
+          const a = at(sg.node + k), b = at(sg.node + k + 1);
+          const d = Math.atan2(a.tx * b.ty - a.ty * b.tx, a.tx * b.tx + a.ty * b.ty);
+          net += d; if (d > 0) pos += d; else neg -= d;
         }
-        if (!cnt) continue;
-        const onScreen = sum / cnt < 0 ? 'left' : 'right';
-        if (onScreen !== sg.kind) wrong.push(def.id + '@' + sg.node + ' 寫 ' + sg.kind + ' 畫面上是 ' + onScreen);
+        const want = net < 0 ? 'left' : 'right';
+        if (want !== sg.kind) bad.push(def.id + '@' + sg.node + ' 寫 ' + sg.kind + ' 淨轉向 ' + (net * 180 / Math.PI).toFixed(0) + '度');
+        else if (Math.abs(net) < 0.28) bad.push(def.id + '@' + sg.node + ' 路太直（' + (net * 180 / Math.PI).toFixed(0) + '度）還立了牌');
+        else if (Math.min(pos, neg) > 0.16) bad.push(def.id + '@' + sg.node + ' 是複合彎還立了左右轉');
       }
     }
-    ok('左右轉標誌指的方向跟畫面上的方向一致', wrong.length === 0,
-      wrong.length + '/' + total + ' 塊指錯：' + wrong.slice(0, 3).join('; '));
+    ok('每塊左右轉標誌的方向都跟前方淨轉向一致', bad.length === 0,
+      bad.length + '/' + total + '：' + bad.slice(0, 3).join('; '));
     ok('有足夠的左右轉標誌可以驗', total > 40, total + ' 塊');
   }
 

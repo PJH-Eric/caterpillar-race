@@ -744,8 +744,14 @@
     G.cam.fov = G.cam.fov + (fovWant - G.cam.fov) * (snapTo ? 1 : 0.08);
     G.boostVis = (G.boostVis || 0) + ((boosting ? 1 : 0) - (G.boostVis || 0)) * 0.12;
 
-    /* 給地面條紋用：鏡頭累積跑過多遠，條紋才會往鏡頭捲過來 */
-    G.camDist = (G.camDist || 0) + me.speed * dt;
+    /* 給地面條紋用：鏡頭累積跑過多遠，條紋才會往鏡頭捲過來。
+     *
+     * 要用「沿著鏡頭方向的速度分量」而不是 me.speed —— me.speed 是
+     * hypot(vx, vy)，永遠是正的，所以後退時條紋還是往鏡頭捲，
+     * 跟實際在倒退的世界反著動，看起來就是畫面在不正常地抖。
+     * 取分量之後後退會讓 camDist 減少，條紋就跟著倒回去。 */
+    const along = me.vx * Math.cos(G.cam.h) + me.vy * Math.sin(G.cam.h);
+    G.camDist = (G.camDist || 0) + along * dt;
 
     /* 隧道：進洞變暗、出洞回亮。用鏡頭的位置查節點，不是毛毛蟲的。
      * 過渡要平滑 —— 節點是離散的，直接切會在洞口「啪」一下。 */

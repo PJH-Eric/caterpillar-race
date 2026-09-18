@@ -1110,13 +1110,42 @@
         ctx.stroke();
         head(-0.3, -0.95, 0, -1);
       } else if (kind === 'tunnel') {
-        /* 拱門：半圓 ＋ 兩腳 ＋ 地面 */
+        /* 隧道：實心的洞口剪影。
+         *
+         * 原本畫的是線稿拱門（半圓＋兩腳＋地面線），牌子在遠處縮到十幾像素時
+         * 那幾條線糊成一團，看不出是什麼。改成實心的黑色洞口 ——
+         * 剪影在任何尺寸下都讀得出來，而且「山裡一個黑洞」的形狀很直覺。
+         *
+         * 畫法：外面一個實心的山形（圓頂的梯形），裡面挖一個小一號的
+         * 拱形黑洞。山用中灰、洞用全黑，兩層對比才看得出「洞」而不是一塊色塊。 */
+        const archTop = -0.62, base = 0.92;
+        /* 山體 */
+        ctx.fillStyle = '#2B2B2B';
         ctx.beginPath();
-        ctx.arc(X(0), Y(0.1), u * 0.78, Math.PI, 0);
-        ctx.stroke();
-        poly([[-0.78, 0.1], [-0.78, 0.92]]);
-        poly([[0.78, 0.1], [0.78, 0.92]]);
-        poly([[-1, 0.92], [1, 0.92]]);
+        ctx.moveTo(X(-1.02), Y(base));
+        ctx.lineTo(X(-0.86), Y(-0.16));
+        ctx.quadraticCurveTo(X(0), Y(archTop - 0.52), X(0.86), Y(-0.16));
+        ctx.lineTo(X(1.02), Y(base));
+        ctx.closePath();
+        ctx.fill();
+        /* 洞口：留一圈山體當邊框，所以比山體小一號 */
+        ctx.fillStyle = '#F7C93E';
+        ctx.beginPath();
+        ctx.moveTo(X(-0.46), Y(base));
+        ctx.lineTo(X(-0.46), Y(archTop + 0.24));
+        ctx.quadraticCurveTo(X(0), Y(archTop - 0.30), X(0.46), Y(archTop + 0.24));
+        ctx.lineTo(X(0.46), Y(base));
+        ctx.closePath();
+        ctx.fill();
+        /* 洞裡是暗的 */
+        ctx.fillStyle = '#2B2B2B';
+        ctx.beginPath();
+        ctx.moveTo(X(-0.30), Y(base));
+        ctx.lineTo(X(-0.30), Y(archTop + 0.34));
+        ctx.quadraticCurveTo(X(0), Y(archTop - 0.10), X(0.30), Y(archTop + 0.34));
+        ctx.lineTo(X(0.30), Y(base));
+        ctx.closePath();
+        ctx.fill();
       } else if (kind === 'up' || kind === 'down') {
         /* 坡：一個斜面三角形，上坡往右上、下坡往右下 */
         const up = kind === 'up';
