@@ -573,6 +573,54 @@ group('八、賽道機制（水坑、上下坡、隧道、捷徑）');
   ok('每條捷徑都比它取代的那段正路短', bad.length === 0, bad.slice(0, 3).join('; '));
 }
 
+{
+  /* --- 兩塊牌子不能擠在一起 ---
+   * 連著三塊牌子閃過去，玩家一塊都讀不到，等於沒有牌子。
+   * 每一種機制是各自挑位置的，所以不同種類本來就會撞在一起 ——
+   * 疏開之前實測有四對站在同一個節點上、一百一十五對間隔不到 20 個節點。 */
+  const GAP = 28;                    /* 約 390 單位，以基礎速度跑過去約 2.6 秒 */
+  const tooClose = [], dup = [];
+  let minGap = Infinity;
+
+  for (const def of Tracks.TRACKS) {
+    const t = Tracks.build(def);
+    const n = t.nodes.length;
+    const ns = t.signs.slice().sort((a, b) => a.node - b.node);
+    for (let i = 1; i < ns.length; i++) {
+      const gap = ns[i].node - ns[i - 1].node;
+      minGap = Math.min(minGap, gap);
+      if (gap < GAP) tooClose.push(def.id + '@' + ns[i].node + ' 只隔 ' + gap);
+      if (gap === 0) dup.push(def.id + '@' + ns[i].node);
+    }
+    /* 環形賽道的頭尾也是鄰居 */
+    if (!t.open && ns.length > 1) {
+      const gap = n - ns[ns.length - 1].node + ns[0].node;
+      minGap = Math.min(minGap, gap);
+      if (gap < GAP) tooClose.push(def.id + ' 頭尾只隔 ' + gap);
+    }
+  }
+
+  ok('沒有兩塊牌子站在同一個節點上', dup.length === 0, dup.slice(0, 3).join(', '));
+  ok('任兩塊牌子都隔得夠開（含環形賽道的頭尾）', tooClose.length === 0,
+    tooClose.length + ' 對太近：' + tooClose.slice(0, 3).join('; '));
+  ok('最近的兩塊也隔得夠開', minGap >= GAP, '最近 ' + minGap + ' 個節點');
+
+  /* 擠在一起時要留「不知道代價最大」的那一種：路型 > 水坑 > 坡 > 隧道。
+   * 這條保證疏開不是隨便砍，而是有取捨的。 */
+  const RANK = ['sturn', 'left', 'right', 'water', 'up', 'down', 'tunnel'];
+  const seen = {};
+  for (const def of Tracks.TRACKS) {
+    for (const sg of Tracks.build(def).signs) seen[sg.kind] = (seen[sg.kind] || 0) + 1;
+  }
+  ok('疏開之後七種標誌還是都有（不是把某一種全砍光）',
+    RANK.every(k => seen[k] > 0), RANK.filter(k => !seen[k]).join(', '));
+  /* 路型的牌子留得最多 —— 它排在優先序最前面 */
+  const shape = (seen.sturn || 0) + (seen.left || 0) + (seen.right || 0);
+  ok('路型的牌子留得比隧道多（優先序有生效）', shape > (seen.tunnel || 0),
+    '路型 ' + shape + ' vs 隧道 ' + (seen.tunnel || 0));
+  ok('沒有暫時種類漏到外面', !seen.turn, seen.turn);
+}
+
 group('九、城市賽道');
 {
   const CITY = ['city', 'highway', 'cityNight'];
@@ -646,35 +694,22 @@ group('十、交通標誌');
   }
 
   ok('每張賽道都有交通標誌', minPer > 0, '最少的一張只有 ' + minPer + ' 塊');
-  ok('標誌數量不會多到變成雜訊', maxPer <= 30, '最多的一張有 ' + maxPer + ' 塊');
+  ok('標誌數量不會多到變成雜訊', maxPer <= 20, '最多的一張有 ' + maxPer + ' 塊');
   ok('七種標誌全都有用到', KINDS.every(k => seen[k] > 0),
     KINDS.filter(k => !seen[k]).join(', '));
   ok('標誌都立在路面外、世界範圍內，而且不在它要警告的東西上面',
     problems.length === 0, problems.slice(0, 3).join('; '));
-  ok('全部賽道加起來有足夠的標誌', total > 200, total + ' 塊');
+  ok('全部賽道加起來有足夠的標誌', total > 150, total + ' 塊');
 }
 {
-  /* --- 左右轉標誌指的方向必須跟賽道實際轉的方向一致 ---
-   * 這是整組標誌裡唯一「指錯會害到玩家」的地方，所以逐塊驗。 */
-  const wrong = [];
-  for (const def of Tracks.TRACKS) {
-    const t = Tracks.build(def);
-    const nodes = t.nodes, n = nodes.length;
-    const at = i => nodes[t.open ? Math.max(0, Math.min(n - 1, i)) : ((i % n) + n) % n];
-    for (const sg of t.signs) {
-      if (sg.kind !== 'left' && sg.kind !== 'right') continue;
-      /* 從標誌往前找它在警告的那個彎，量賽道實際往哪邊轉 */
-      let turn = 0;
-      for (let k = 6; k < 34; k++) {
-        const a = at(sg.node + k - 4), b = at(sg.node + k + 4);
-        turn += a.tx * b.ty - a.ty * b.tx;
-      }
-      const actual = turn >= 0 ? 'left' : 'right';
-      if (actual !== sg.kind) wrong.push(def.id + '@' + sg.node + ' 寫 ' + sg.kind + ' 實際 ' + actual);
-    }
-  }
-  ok('左右轉標誌指的方向跟賽道實際轉向一致', wrong.length === 0,
-    wrong.length + ' 塊指錯：' + wrong.slice(0, 3).join('; '));
+  /* 左右轉標誌「指對方向」是這組標誌裡唯一指錯會害到玩家的地方，
+   * 但它驗不了 —— 玩家看到的左右是「投影到畫面之後」的左右，
+   * 跟世界座標的外積正負是鏡像的（這裡的投影讓世界 +y 落在畫面右邊）。
+   * 拿外積來比會跟產生它的程式碼犯同一個錯，測試跟著一起過。
+   * 所以那一條搬到 render-check，用 Render.projector 量畫面上的偏移。 */
+  ok('每一種標誌都指得出方向或狀態',
+    Tracks.TRACKS.every(def => Tracks.build(def).signs.every(sg =>
+      ['left', 'right', 'sturn', 'tunnel', 'up', 'down', 'water'].indexOf(sg.kind) >= 0)));
 }
 {
   /* 同一個 seed 的標誌要一模一樣（線上對戰兩邊看到的牌子必須相同） */

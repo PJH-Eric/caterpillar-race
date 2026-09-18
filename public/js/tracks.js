@@ -595,6 +595,25 @@
   const SIGN_LEAD = 20;
   /** 同一種標誌至少要隔這麼多節點，才不會連續插一排一樣的牌子 */
   const SIGN_SPACING = 24;
+  /**
+   * 任意兩塊牌子（不分種類）至少要隔這麼多節點。
+   * 28 個節點約 390 單位，以基礎速度 150 跑過去約 2.6 秒 ——
+   * 一塊牌子看完、反應完，才輪到下一塊。
+   *
+   * 沒有這條的話只有「同種類」之間有間距，不同種類會疊在一起：
+   * 實測有四對牌子站在同一個節點上，一百一十五對間隔不到 20 個節點。
+   */
+  const SIGN_MIN_GAP = 28;
+  /**
+   * 擠在一起只能留一塊時，留哪一種。排前面的優先。
+   *
+   * 排序的依據是「不知道的話代價多大」：
+   *   路型（連續彎、左右轉）走錯線最貴，而且是唯一沒看到牌子就完全猜不到的；
+   *   水坑會讓車滑出去，但至少看得到地上有一塊亮的；
+   *   上下坡只是快慢，看不到也不會撞；
+   *   隧道最不需要預告 —— 它本人在前面就是一個很大的洞。
+   */
+  const SIGN_RANK = ['sturn', 'left', 'right', 'turn', 'water', 'up', 'down', 'tunnel'];
 
   /**
    * @param {object} opt { nodes, open, curve, startNode, tunnels, slopes, water }
@@ -669,6 +688,40 @@
       if (best >= 0) put('water', best - SIGN_LEAD, i => !inTun[i]);
     }
 
+    /**
+     * 從節點 i 往前看，賽道在「畫面上」往哪邊偏。
+     *
+     * 為什麼不用外積：玩家看到的左右是投影之後的左右。這個投影的橫向是
+     * r = -(dx)*sin + (dy)*cos，而節點的法線就是 (-ty, tx)，所以
+     * 「沿法線的偏移」剛好等於「畫面上離中心多遠」（實測同號同量級）。
+     * 也就是說沿法線算出來的正負，就是玩家眼睛看到的正負，不用真的投影。
+     *
+     * 為什麼從牌子的位置算而不是從彎的位置算：牌子會被間距限制與「往後退著找
+     * 可用節點」推移，推移之後前方那個彎可能已經換成別的彎了。玩家開到牌子
+     * 面前時看到的是「牌子前面那段路」，所以就從牌子往前量。
+     *
+     * @returns {number} >0 畫面右、<0 畫面左
+     */
+    function screenTurn(i) {
+      const nd = nodes[i];
+      let sum = 0, wsum = 0;
+      /* 8～40 個節點＝約 110～560 單位，剛好是玩家在牌子前看得到的那一段 */
+      for (let k = 8; k < 40; k++) {
+        /* 衝刺賽道不能繞回起點：終點之後沒有路，繞回去量的是另一頭的彎 */
+        const j = open ? i + k : wrap(i + k);
+        if (open && j > n - 1) break;
+        const f = nodes[j];
+        const lat = (f.x - nd.x) * nd.nx + (f.y - nd.y) * nd.ny;
+        /* 透視加權：畫面上的偏移是「橫向距離 ÷ 前方距離」，近的那一段占的
+         * 像素多很多，玩家的感覺也是被近景主導。不加權的話「遠方往左、
+         * 近處往右」的複合彎會算成往左，跟畫面上看到的相反。 */
+        const w = 1 / (120 + k * NODE_STEP);
+        sum += lat * w;
+        wsum += w;
+      }
+      return wsum ? sum / wsum : 0;
+    }
+
     /* --- 彎道的預告牌 ---
      * 先把賽道切成「彎段」：彎度連續超過門檻的一串節點算一個彎，
      * 順便記它往左還是往右（切線的外積）。 */
@@ -679,7 +732,10 @@
       const i = wrap(k);
       if (curve[i] >= TURN_IN) {
         const a = nodes[wrap(i - 4)], b = nodes[wrap(i + 4)];
-        const dir = (a.tx * b.ty - a.ty * b.tx) >= 0 ? 1 : -1;    /* 1＝左 -1＝右 */
+        /* 這裡的 dir 只用來把「連續同向的節點」黏成一個彎，以及判斷下一個彎
+         * 是不是反向（連續彎要立 S 彎的牌子）。正負代表哪一邊不重要，
+         * 一致就夠了 —— 牌子最後寫左還是寫右，統一由 screenTurn() 重算。 */
+        const dir = (a.tx * b.ty - a.ty * b.tx) >= 0 ? 1 : -1;
         if (run && run.dir === dir) { run.to = i; run.sum += curve[i]; }
         else { if (run) corners.push(run); run = { from: i, to: i, dir: dir, sum: curve[i] }; }
       } else if (run) { corners.push(run); run = null; }
@@ -707,14 +763,63 @@
     }
     for (let k = 0; k < real.length; k++) {
       if (paired[k]) continue;
-      put(real[k].dir > 0 ? 'left' : 'right', real[k].from - SIGN_LEAD);
+      /* 先立一塊「轉彎」，左右等牌子的位置定下來再算 */
+      put('turn', real[k].from - SIGN_LEAD);
     }
 
+    /* 轉彎牌的左右，統一從牌子最後站的位置往前量。
+     * 一開始是在彎那邊算好左右再立牌，八十九塊有六十四塊指反（外積方向搞錯），
+     * 改對方向之後還有二十五塊不對 —— 那些是牌子被推移之後，
+     * 前面那個彎已經不是原本要警告的那一個了。從牌子往前量就沒有這個問題。 */
+    for (const sg of signs) {
+      if (sg.kind !== 'turn') continue;
+      sg.kind = screenTurn(sg.node) < 0 ? 'left' : 'right';
+    }
+
+    /* 'turn' 是上面那一輪的暫時種類，到這裡應該都換成 left／right 了 */
+    for (const sg of signs) if (sg.kind === 'turn') sg.kind = 'right';
+
     /* 起跑線附近不要立牌（擋住起跑格，而且開跑瞬間看不清楚） */
-    return signs.filter(sg => {
+    let out = signs.filter(sg => {
       const d = Math.abs(((sg.node - opt.startNode + n * 1.5) % n) - n * 0.5);
       return d > 8;
     });
+
+    /* ---- 疏開：擠在一起的只留一塊 ----
+     *
+     * 前面每一種機制是各自挑位置的，所以不同種類會撞在一起（實測有四對
+     * 站在同一個節點上）。連著三塊牌子閃過去，玩家一塊都讀不到，
+     * 等於沒有牌子 —— 寧可少一塊，也不要插成一排。
+     *
+     * 沿賽道順序掃一遍：跟上一塊留下來的太近就比優先序，贏的那塊留下。
+     * 環形賽道要多比一次頭尾（最後一塊跟第一塊也是鄰居）。
+     */
+    const rankOf = k => {
+      const i = SIGN_RANK.indexOf(k);
+      return i < 0 ? SIGN_RANK.length : i;
+    };
+    out.sort((a, b) => a.node - b.node);
+
+    const kept = [];
+    for (const sg of out) {
+      const last = kept[kept.length - 1];
+      if (last && sg.node - last.node < SIGN_MIN_GAP) {
+        /* 太近：優先序高的留下（同分就留先到的，也就是賽道上比較前面那塊） */
+        if (rankOf(sg.kind) < rankOf(last.kind)) kept[kept.length - 1] = sg;
+        continue;
+      }
+      kept.push(sg);
+    }
+    /* 環形賽道的頭尾也是鄰居 */
+    if (!open && kept.length > 1) {
+      const first = kept[0], last = kept[kept.length - 1];
+      if (n - last.node + first.node < SIGN_MIN_GAP) {
+        if (rankOf(first.kind) < rankOf(last.kind)) kept.pop();
+        else kept.shift();
+      }
+    }
+
+    return kept;
   }
 
   /** 每個節點在不在隧道裡（畫面每幀要查很多次，先攤成表） */

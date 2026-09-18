@@ -392,6 +392,54 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
   /* 不認得的種類要有退路，不能什麼都不畫 */
   ok('沒見過的標誌種類會畫驚嘆號當退路', pictogram('nonesuch').draws >= 3);
 
+  /* ---- 左右轉標誌指的方向，必須跟「投影到畫面之後」的方向一致 ----
+   *
+   * 這是整組標誌裡唯一指錯會害到玩家的地方（玩家會照著轉錯邊），
+   * 而且只能這樣驗：玩家看到的左右是投影之後的左右。
+   * 這個投影讓世界 +y 落在畫面右邊，所以世界座標的外積正負跟畫面上的左右
+   * 是鏡像的 —— 拿外積比會跟產生標誌的程式碼犯同一個錯，測試會跟著一起過
+   *（實測就發生過：八十九塊裡六十四塊指反，而外積版的測試全過）。
+   */
+  {
+    const Tracks3 = require('../public/js/tracks.js');
+    /* 先釘住投影的橫向慣例，這條一變下面的判斷就全部要重看 */
+    const probe = Render.projector({ w: 1280, h: 720 }, { x: 0, y: 0, z: 60, a: 0, fov: 1 });
+    ok('投影：面向 +x 時世界 +y 在畫面右邊（標誌左右的判斷依據）',
+      probe.pt(300, 100, 0).x > 640,
+      'x=' + probe.pt(300, 100, 0).x.toFixed(0));
+
+    let total = 0, wrong = [];
+    for (const def of Tracks3.TRACKS) {
+      const t = Tracks3.build(def);
+      const n = t.nodes.length;
+      const at = i => t.nodes[t.open ? Math.max(0, Math.min(n - 1, i)) : ((i % n) + n) % n];
+      for (const sg of t.signs) {
+        if (sg.kind !== 'left' && sg.kind !== 'right') continue;
+        total++;
+        const nd = at(sg.node);
+        /* 鏡頭擺在標誌那個節點的後面，朝賽道方向看 —— 跟玩家開到這裡時一樣 */
+        const P2 = Render.projector({ w: 1280, h: 720 }, {
+          x: nd.x - nd.tx * 120, y: nd.y - nd.ty * 120, z: 62,
+          a: Math.atan2(nd.ty, nd.tx), fov: 1
+        });
+        /* 往前掃一段，累積路中心偏離畫面中心多少 */
+        let sum = 0, cnt = 0;
+        for (let k = 8; k < 40; k++) {
+          const f = at(sg.node + k);
+          if (P2.fwd(f.x, f.y) < 40) continue;
+          sum += P2.pt(f.x, f.y, 0).x - 640;
+          cnt++;
+        }
+        if (!cnt) continue;
+        const onScreen = sum / cnt < 0 ? 'left' : 'right';
+        if (onScreen !== sg.kind) wrong.push(def.id + '@' + sg.node + ' 寫 ' + sg.kind + ' 畫面上是 ' + onScreen);
+      }
+    }
+    ok('左右轉標誌指的方向跟畫面上的方向一致', wrong.length === 0,
+      wrong.length + '/' + total + ' 塊指錯：' + wrong.slice(0, 3).join('; '));
+    ok('有足夠的左右轉標誌可以驗', total > 40, total + ' 塊');
+  }
+
   const render = read('public/js/render.js');
   ok('標誌牌面正面朝鏡頭（轉過去斜看就只剩一條線）', /billboard/.test(render));
   ok('標誌太遠就不畫圖示（只剩一塊黃菱形）', /r < 7/.test(render));
