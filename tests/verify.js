@@ -797,7 +797,7 @@ group('十三、速度顯示（km/h）');
 
   /* 讀數要落在賽車該有的範圍 —— 尺度訂錯的話會變成 5 km/h 或 500 km/h */
   const base = Rules.kmh(C.BASE_SPEED);
-  ok('基礎速度的讀數像賽車（30～90 km/h）', base > 30 && base < 90, base.toFixed(0) + ' km/h');
+  ok('基礎速度約為 75 km/h', Math.abs(base - 75) < 1, base.toFixed(0) + ' km/h');
   const top = Rules.kmh(C.BASE_SPEED * (1 + C.MAX_BOOST));
   ok('極速的讀數不誇張（90～200 km/h）', top > 90 && top < 200, top.toFixed(0) + ' km/h');
   ok('泥巴比跑道慢得看得出來',
