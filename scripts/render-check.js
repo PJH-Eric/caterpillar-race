@@ -261,7 +261,7 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
   const same = [], missing = [];
   for (const id in themes) {
     const c = Render.surfaceColors(themes[id]);
-    for (const k of ['water', 'waterLip', 'slopeUp', 'slopeDown', 'wall', 'wallDark', 'roof']) {
+    for (const k of ['water', 'waterLip', 'slopeUp', 'slopeDown']) {
       if (!/^#[0-9a-f]{6}$/i.test(c[k] || '')) missing.push(id + '.' + k);
     }
     if (c.slopeUp === themes[id].road || c.slopeDown === themes[id].road) same.push(id);
@@ -281,56 +281,12 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
   }
   ok('上坡比平路暗、下坡比平路亮', wrongWay.length === 0, wrongWay.join(', '));
 
-  /* 隧道的牆一定要比路面暗，不然「進洞」讀不出來 */
-  let bright = [];
-  for (const id in themes) {
-    const c = Render.surfaceColors(themes[id]);
-    if (lum(c.roof) >= lum(c.wall)) bright.push(id);
-  }
-  ok('隧道頂比側牆暗', bright.length === 0, bright.join(', '));
-
   const render = read('public/js/render.js');
-  ok('隧道有牆也有天花板', /function tunnel/.test(render) && /TUNNEL_H/.test(render));
-  ok('隧道淨高高過鏡頭（不然鏡頭會穿出天花板）', Render.HEAD_CAM && /TUNNEL_H = 9/.test(render));
   ok('坡上有人字箭頭', /function chevron/.test(render));
-  ok('進隧道會壓暗畫面', typeof Render.drawTunnelShade === 'function');
   ok('水坑跟泥巴畫法不一樣（不然只是換色的泥巴）', /waterLip/.test(render));
 
   const app = read('public/js/app.js');
-  ok('箭頭與隧道有各自的繪製階段', app.includes('face.chevron(ctx)') && app.includes('face.tunnel(ctx)'));
-  ok('隧道明暗用鏡頭的節點算，不是毛毛蟲的', app.includes('nodeAt(tr, G.cam.x, G.cam.y, me.node)'));
-
-  /* 隧道的牆真的畫在路面外、頂真的在上面 */
-  const Tracks2 = require('../public/js/tracks.js');
-  const tk = Tracks2.get('garden', 's');
-  let tunnelNode = -1;
-  for (let i = 0; i < tk.nodes.length; i++) if (tk.inTunnel[i]) { tunnelNode = i; break; }
-  ok('garden 有隧道區段', tunnelNode >= 0);
-  if (tunnelNode >= 0) {
-    const nd = tk.nodes[tunnelNode];
-    const cam = { x: nd.x - nd.tx * 150, y: nd.y - nd.ty * 150,
-      a: Math.atan2(nd.ty, nd.tx), z: 62, fov: 1 };
-    const P = Render.projector({ w: 1280, h: 720 }, cam);
-    const faces = [];
-    Render.trackFaces(P, tk, tunnelNode, themes.garden, faces);
-    const withTunnel = faces.filter(f => f.tunnel);
-    ok('隧道區段會產生牆與頂的繪製', withTunnel.length > 0, withTunnel.length + ' 段');
-
-    /* 把頂畫出來，量它在畫面上的位置：必須在地平線上方 */
-    let topY = Infinity, drew = 0;
-    const ctx = {
-      save() {}, restore() {}, beginPath() {}, closePath() {}, fill() { drew++; },
-      stroke() {}, moveTo(x, y) { topY = Math.min(topY, y); },
-      lineTo(x, y) { topY = Math.min(topY, y); },
-      createRadialGradient() { return { addColorStop() {} }; },
-      createLinearGradient() { return { addColorStop() {} }; },
-      ellipse() {}, arc() {}, fillRect() {}, quadraticCurveTo() {}, setLineDash() {}
-    };
-    for (const f of withTunnel) f.tunnel(ctx);
-    ok('隧道真的有畫出東西', drew > 0, drew + ' 個面');
-    ok('隧道頂畫在地平線上方（人在洞裡，頂在頭上）',
-      topY < P.horizon, '頂 y=' + topY.toFixed(0) + '，地平線 y=' + P.horizon.toFixed(0));
-  }
+  ok('箭頭有獨立的繪製階段', app.includes('face.chevron(ctx)'));
 }
 
 /* ---------- 城市賽道的美術 ---------- */
@@ -356,7 +312,7 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
 {
   const TrackArt = require('../public/js/themes/tracks-art.js');
   const theme = TrackArt.THEMES.garden;
-  const KINDS = ['left', 'right', 'sturn', 'tunnel', 'up', 'down', 'water'];
+  const KINDS = ['left', 'right', 'sturn', 'up', 'down', 'water'];
 
   /* 只量牌面上的圖示：桿子與牌框是對稱的，會把左右差異洗掉。
    * 第一次 stroke 是桿子、第二次是牌框，之後畫的才是圖示。 */
@@ -390,14 +346,10 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
   ok('左轉與右轉互為鏡像',
     Math.abs((400 - pics.left.cx) - (pics.right.cx - 400)) < 0.5);
   ok('上坡與下坡的圖示不一樣', Math.abs(pics.up.cx - pics.down.cx) > 1);
-  ok('七種標誌的圖示兩兩都不同',
+  ok('六種標誌的圖示兩兩都不同',
     new Set(KINDS.map(k => pics[k].cx.toFixed(2) + ',' + pics[k].cy.toFixed(2))).size === KINDS.length);
   /* 不認得的種類要有退路，不能什麼都不畫 */
   ok('沒見過的標誌種類會畫驚嘆號當退路', pictogram('nonesuch').draws >= 3);
-  /* 隧道原本畫線稿拱門，遠處縮小就糊成一團；改成實心剪影，任何尺寸都讀得出來 */
-  ok('隧道圖示是實心剪影（不是線稿）',
-    /山體/.test(read('public/js/render.js')) && pics.tunnel.draws >= 3);
-
   /* ---- 標誌左右的判準：世界的轉向怎麼對應到畫面的左右 ----
    *
    * 這是整組標誌唯一指錯會害到玩家的地方，而且它壞過一次

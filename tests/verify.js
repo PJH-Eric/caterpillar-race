@@ -471,7 +471,7 @@ group('七、重現性');
     snap.racers.every(r => 'rank' in r && 'lap' in r && 'item' in r));
 }
 
-group('八、賽道機制（水坑、上下坡、隧道、捷徑）');
+group('八、賽道機制（水坑、上下坡、捷徑）');
 {
   const S = Tracks.SURFACE;
   /* --- 地形係數的相對關係。數值可以調，關係不能壞掉。 --- */
@@ -503,7 +503,8 @@ group('八、賽道機制（水坑、上下坡、隧道、捷徑）');
     const r = st.racers[0];
     /* 把整張賽道的地形改成指定的那一種，人就一定站在上面 */
     track.grid.surface.fill(surface);
-    for (let i = 0; i < 260; i++) Rules.step(st, { a: { steer: 0, gas: 1, man: 1, use: false } });
+    /* 120 tick 足夠收斂到目標速度，也避免提速後提前衝到終點開始減速。 */
+    for (let i = 0; i < 120; i++) Rules.step(st, { a: { steer: 0, gas: 1, man: 1, use: false } });
     return r.speed;
   }
   const flat = cruiseOn(S.TRACK);
@@ -535,24 +536,24 @@ group('八、賽道機制（水坑、上下坡、隧道、捷徑）');
   for (const def of Tracks.TRACKS) {
     const t = Tracks.build(def);
     const n = t.nodes.length;
-    if (!t.tunnels.length && !t.slopes.length && !t.water.length) noFeature.push(def.id);
+    if (!t.slopes.length && !t.water.length) noFeature.push(def.id);
     const up = t.slopes.filter(s => s.dir > 0).length;
     const down = t.slopes.filter(s => s.dir < 0).length;
     if (up !== down) unpaired.push(def.id + '(' + up + '/' + down + ')');
     /* 區間不能超出節點數 —— 衝刺賽道繞不回去，超出去就是畫在賽道外 */
-    for (const sp of t.slopes.concat(t.tunnels)) {
+    for (const sp of t.slopes) {
       if (t.open && (sp.from < 0 || sp.to >= n)) outOfRange.push(def.id);
     }
   }
   ok('每張賽道至少有一種機制', noFeature.length === 0, noFeature.join(', '));
   ok('上下坡一定成對出現（不然一圈會淨加速或淨扣速）', unpaired.length === 0, unpaired.join(', '));
-  ok('衝刺賽道的坡與隧道不會超出賽道兩端', outOfRange.length === 0, outOfRange.join(', '));
+  ok('衝刺賽道的坡不會超出賽道兩端', outOfRange.length === 0, outOfRange.join(', '));
 }
 {
   /* --- 同一個 seed 一定長出一樣的賽道（線上對戰兩邊要算出同一張） --- */
   const a = Tracks.get('random', 'same-seed');
   const b = Tracks.get('random', 'same-seed');
-  const key = t => JSON.stringify([t.tunnels, t.slopes, t.water.map(w => [w.x | 0, w.y | 0]),
+  const key = t => JSON.stringify([t.slopes, t.water.map(w => [w.x | 0, w.y | 0]),
     t.shortcuts.map(sc => [sc.from, sc.to])]);
   ok('同一個 seed 的機制佈局完全一樣', key(a) === key(b));
   const c = Tracks.get('random', 'other-seed');
@@ -605,19 +606,18 @@ group('八、賽道機制（水坑、上下坡、隧道、捷徑）');
     tooClose.length + ' 對太近：' + tooClose.slice(0, 3).join('; '));
   ok('最近的兩塊也隔得夠開', minGap >= GAP, '最近 ' + minGap + ' 個節點');
 
-  /* 擠在一起時要留「不知道代價最大」的那一種：路型 > 水坑 > 坡 > 隧道。
+  /* 擠在一起時要留「不知道代價最大」的那一種：路型 > 水坑 > 坡。
    * 這條保證疏開不是隨便砍，而是有取捨的。 */
-  const RANK = ['sturn', 'left', 'right', 'water', 'up', 'down', 'tunnel'];
+  const RANK = ['sturn', 'left', 'right', 'water', 'up', 'down'];
   const seen = {};
   for (const def of Tracks.TRACKS) {
     for (const sg of Tracks.build(def).signs) seen[sg.kind] = (seen[sg.kind] || 0) + 1;
   }
-  ok('疏開之後七種標誌還是都有（不是把某一種全砍光）',
+  ok('疏開之後六種標誌還是都有（不是把某一種全砍光）',
     RANK.every(k => seen[k] > 0), RANK.filter(k => !seen[k]).join(', '));
   /* 路型的牌子留得最多 —— 它排在優先序最前面 */
   const shape = (seen.sturn || 0) + (seen.left || 0) + (seen.right || 0);
-  ok('路型的牌子留得比隧道多（優先序有生效）', shape > (seen.tunnel || 0),
-    '路型 ' + shape + ' vs 隧道 ' + (seen.tunnel || 0));
+  ok('路型的牌子有保留（優先序有生效）', shape > 0, '路型 ' + shape);
   ok('沒有暫時種類漏到外面', !seen.turn, seen.turn);
 }
 
@@ -652,7 +652,7 @@ group('九、城市賽道');
 
 group('十、交通標誌');
 {
-  const KINDS = ['left', 'right', 'sturn', 'tunnel', 'up', 'down', 'water'];
+  const KINDS = ['left', 'right', 'sturn', 'up', 'down', 'water'];
   const seen = {}, problems = [];
   let total = 0, minPer = 1e9, maxPer = 0;
 
@@ -678,10 +678,6 @@ group('十、交通標誌');
       if (!(sg.node >= 0 && sg.node < n)) problems.push(def.id + ' 標誌的節點超出範圍');
     }
 
-    /* 隧道標誌一定要在隧道「前面」，不能立在洞裡（立在洞裡等於沒警告） */
-    for (const sg of t.signs.filter(x => x.kind === 'tunnel')) {
-      if (t.inTunnel[sg.node]) problems.push(def.id + ' 的隧道標誌立在隧道裡面');
-    }
     /* 坡的標誌不能立在「它要警告的那種坡」上面 —— 站在上坡上被告知前面有上坡
      * 是沒有意義的。反過來「下坡預告立在上坡上」是對的：真實道路的陡降標誌
      * 本來就立在爬坡快到頂的地方，所以只比同方向。 */
@@ -695,7 +691,7 @@ group('十、交通標誌');
 
   ok('每張賽道都有交通標誌', minPer > 0, '最少的一張只有 ' + minPer + ' 塊');
   ok('標誌數量不會多到變成雜訊', maxPer <= 20, '最多的一張有 ' + maxPer + ' 塊');
-  ok('七種標誌全都有用到', KINDS.every(k => seen[k] > 0),
+  ok('六種標誌全都有用到', KINDS.every(k => seen[k] > 0),
     KINDS.filter(k => !seen[k]).join(', '));
   ok('標誌都立在路面外、世界範圍內，而且不在它要警告的東西上面',
     problems.length === 0, problems.slice(0, 3).join('; '));
@@ -709,7 +705,7 @@ group('十、交通標誌');
    * 所以那一條搬到 render-check，用 Render.projector 量畫面上的偏移。 */
   ok('每一種標誌都指得出方向或狀態',
     Tracks.TRACKS.every(def => Tracks.build(def).signs.every(sg =>
-      ['left', 'right', 'sturn', 'tunnel', 'up', 'down', 'water'].indexOf(sg.kind) >= 0)));
+      ['left', 'right', 'sturn', 'up', 'down', 'water'].indexOf(sg.kind) >= 0)));
 }
 {
   /* 同一個 seed 的標誌要一模一樣（線上對戰兩邊看到的牌子必須相同） */

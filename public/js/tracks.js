@@ -339,14 +339,14 @@
 
   /* ---------- 賽道機制的自動佈局 ----------
    *
-   * 隧道、上下坡、水坑三種都是「一段一段」或「一塊一塊」貼在賽道上的東西。
+   * 上下坡、水坑兩種都是「一段一段」或「一塊一塊」貼在賽道上的東西。
    * 二十張手設賽道逐張挑節點 index 不但煩，而且賽道幾何一動就全錯，
-   * 所以改成從幾何算出來：直線段放隧道與坡，彎道出口放水坑。
+   * 所以改成從幾何算出來：直線段放坡，彎道出口放水坑。
    *
    * 全部走同一支 RNG（種子＝賽道 seed），所以：
    *   - 同一張賽道每次開出來都一樣（線上對戰兩邊算出來的必須一致）
    *   - 隨機賽道跟手設賽道共用同一套邏輯，不用寫兩份
-   * def 裡有寫死的 slopes／tunnels／water 就以 def 為準，不自動放。
+   * def 裡有寫死的 slopes／water 就以 def 為準，不自動放。
    */
 
   /** 每個節點附近的彎度（弧度）。越大越彎。 */
@@ -376,7 +376,7 @@
         worst = Math.max(worst, curve[j]);
       }
       if (clash) continue;
-      /* 單點爆彎的區段不要：平均直但中間有個髮夾，隧道就會歪出路面 */
+      /* 單點爆彎的區段不要：平均直但中間有個髮夾，坡段會失去穩定性 */
       if (worst > maxWorst) continue;
       runs.push({ at: i, bend: sum / len });
     }
@@ -388,8 +388,8 @@
    * 找一段放得下的路，找不到就一路退讓：先縮短，再放寬彎度。
    *
    * 沒有這個退讓的話，糖果餅乾、雪地那種「整張都在轉」的賽道會一段都放不下，
-   * 玩起來就是「有些賽道有機制、有些完全沒有」。彎道裡的隧道與坡其實很好玩，
-   * 只是不能歪出路面，所以放寬的是「平均多直」，上限（單點爆彎）還是擋著。
+   * 玩起來就是「有些賽道有機制、有些完全沒有」。彎道裡的坡其實很好玩，
+   * 只是不能失去穩定性，所以放寬的是「平均多直」，上限（單點爆彎）還是擋著。
    *
    * @returns {{at:number, len:number}|null}
    */
@@ -412,7 +412,7 @@
   }
 
   /**
-   * 幫一張賽道排好隧道、上下坡、水坑。
+   * 幫一張賽道排好上下坡、水坑。
    * @param {object} opt { nodes, open, rng, startNode, boosts }
    */
   function placeFeatures(opt) {
@@ -420,18 +420,15 @@
     const curve = curvature(nodes, open);
     const taken = new Uint8Array(n);
 
-    /* 起跑線前後淨空：開跑就撞進隧道或坡很莫名，而且會擋住起跑格 */
+    /* 起跑線前後淨空：開跑就撞進坡很莫名，而且會擋住起跑格 */
     markTaken(taken, n, opt.startNode - 14, 28, 0);
-    /* 只擋起跑線的那一份，給「至少要有一個隧道」的最後退讓用 */
-    const startOnly = new Uint8Array(n);
-    markTaken(startOnly, n, opt.startNode - 14, 28, 0);
 
-    const tunnels = [], slopes = [], water = [], shortcuts = [];
+    const slopes = [], water = [], shortcuts = [];
     /* 賽道越長放越多，但都有上限 —— 一圈裡每種機制出現兩三次剛好，
      * 再多就變成「整張都是機制」，反而沒有記憶點。 */
     const scale = Math.min(1, n / 420);
 
-    /* --- 上下坡：成對放，先上後下（先挑，才不會被隧道把直線段吃光） ---
+    /* --- 上下坡：成對放，先上後下 ---
      * 成對是刻意的：一圈的淨高度必須是零，不然「一直下坡」就變成免費加速，
      * 圈速會整個垮掉。上坡在前、下坡在後，跑起來就是爬上去再衝下來。 */
     {
@@ -461,31 +458,6 @@
           slopes.pop();
         }
         if (slopes.length > before) k++;
-      }
-    }
-
-    /* --- 隧道：坡挑剩的直線段裡再挑最直的 ---
-     * 順序在坡後面是刻意的：隧道歪一點還是隧道，坡放不下就整對消失，
-     * 所以讓坡先挑。 */
-    {
-      const want = n < 300 ? 1 : (rng.chance(0.55) ? 2 : 1);
-      for (let k = 0; k < want; k++) {
-        const run = findRun(curve, n, rng.range(24, 40), open, taken, rng);
-        if (!run) break;
-        tunnels.push([run.at, run.at + run.len]);
-        markTaken(taken, n, run.at, run.len, 10);
-      }
-      /* 坡把直線段吃光的賽道，這裡會一個隧道都放不到。
-       * 隧道歪一點還是隧道，所以退而求其次：允許擠在坡旁邊（pad 給 2 就好），
-       * 而且短一點也行。一張賽道至少要有一個隧道，不然「有些賽道有、有些沒有」
-       * 對玩家來說就只是感覺賽道做得不一樣完整。 */
-      if (!tunnels.length) {
-        /* 先試「擠在坡旁邊」，再不行就完全不管別的機制 ——
-         * 隧道不是地形（不塗 grid），跟坡疊在一起只是「隧道裡有段下坡」，
-         * 那其實還挺好玩的，沒有壞掉。 */
-        const run = findRun(curve, n, 16, open, taken, rng)
-          || findRun(curve, n, 18, open, startOnly, rng);
-        if (run) tunnels.push([run.at, run.at + run.len]);
       }
     }
 
@@ -579,7 +551,7 @@
       }
     }
 
-    return { tunnels, slopes, water, shortcuts, curve };
+    return { slopes, water, shortcuts, curve };
   }
 
   /* ---------- 交通標誌 ----------
@@ -611,12 +583,12 @@
    *   路型（連續彎、左右轉）走錯線最貴，而且是唯一沒看到牌子就完全猜不到的；
    *   水坑會讓車滑出去，但至少看得到地上有一塊亮的；
    *   上下坡只是快慢，看不到也不會撞；
-   *   隧道最不需要預告 —— 它本人在前面就是一個很大的洞。
+   *   上下坡只影響速度，提示牌放在路邊讓玩家提早準備。
    */
-  const SIGN_RANK = ['sturn', 'left', 'right', 'turn', 'water', 'up', 'down', 'tunnel'];
+  const SIGN_RANK = ['sturn', 'left', 'right', 'turn', 'water', 'up', 'down'];
 
   /**
-   * @param {object} opt { nodes, open, curve, startNode, tunnels, slopes, water }
+   * @param {object} opt { nodes, open, curve, startNode, slopes, water }
    * @returns {Array<{x:number, y:number, kind:string, node:number}>}
    */
   function placeSigns(opt) {
@@ -634,9 +606,7 @@
      * 右邊不行就換左邊，兩邊都不行就往外推，真的都沒地方就放棄這一塊。
      */
     function put(kind, at, okNode) {
-      /* 目標節點不能用就往後退著找（一定要退，不能往前 —— 標誌得在事件前面）。
-       * 兩個隧道靠得近的時候，第二個的預告牌算出來會落在第一個洞裡面，
-       * 立在洞裡的「前面有隧道」等於沒有警告。 */
+      /* 目標節點不能用就往後退著找（一定要退，不能往前 —— 標誌得在事件前面）。 */
       let at2 = at;
       if (okNode) {
         let found = false;
@@ -668,11 +638,9 @@
     }
 
     /* --- 機制的預告牌 --- */
-    /* 隧道牌不能立在任何隧道裡；坡牌不能立在同方向的坡上
+    /* 坡牌不能立在同方向的坡上
      *（下坡預告立在上坡上是對的 —— 真實道路的陡降標誌就在爬坡快到頂的地方）。 */
-    const inTun = tunnelMask(opt.tunnels, n);
     const slopeOf = slopeMask(opt.slopes, n);
-    for (const t of opt.tunnels) put('tunnel', t.from - SIGN_LEAD, i => !inTun[i]);
     for (const sp of opt.slopes) {
       const want = sp.dir > 0 ? 1 : -1;
       put(sp.dir > 0 ? 'up' : 'down', sp.from - SIGN_LEAD, i => slopeOf[i] !== want);
@@ -685,7 +653,7 @@
         const d = dx * dx + dy * dy;
         if (d < bd) { bd = d; best = i; }
       }
-      if (best >= 0) put('water', best - SIGN_LEAD, i => !inTun[i]);
+      if (best >= 0) put('water', best - SIGN_LEAD);
     }
 
     /**
@@ -843,15 +811,6 @@
     return kept;
   }
 
-  /** 每個節點在不在隧道裡（畫面每幀要查很多次，先攤成表） */
-  function tunnelMask(tunnels, n) {
-    const mask = new Uint8Array(n);
-    for (const t of tunnels) {
-      for (let i = t.from; i <= t.to; i++) mask[((i % n) + n) % n] = 1;
-    }
-    return mask;
-  }
-
   /** 每個節點是上坡（+1）、下坡（-1）還是平路（0）。畫面用，物理一律查 grid。 */
   function slopeMask(slopes, n) {
     const mask = new Int8Array(n);
@@ -992,10 +951,10 @@
     /* 起跑格的位置要先知道，機制佈局才躲得開起跑線 */
     const startNode = chooseStartNode(nodes, open, def.startNode);
 
-    /* def 三種都沒寫就自動佈局。有寫任何一種就整包以 def 為準 ——
+    /* def 機制都沒寫就自動佈局。有寫任何一種就整包以 def 為準 ——
      * 半自動半手動的話，手設的那一種會被自動的那一種蓋掉，很難除錯。 */
-    const authored = !!(def.slopes || def.tunnels || def.water);
-    const auto = authored ? { slopes: [], tunnels: [], water: [], shortcuts: [] }
+    const authored = !!(def.slopes || def.water);
+    const auto = authored ? { slopes: [], water: [], shortcuts: [] }
       : placeFeatures({
         nodes: nodes, open: open, startNode: startNode,
         rng: RNG.create((def.seed || def.id || 'track') + ':feat')
@@ -1097,12 +1056,6 @@
       .map(s => ({ from: s[0], to: s[1], dir: s[2] > 0 ? 1 : -1 }))
       .filter(s => s.to > s.from);
 
-    /* 隧道同理，用節點區間。隧道不是地形（踩起來就是一般路面），
-     * 它只改畫面與氣氛，所以不塗進 grid。 */
-    const tunnelList = (def.tunnels || auto.tunnels)
-      .map(t => ({ from: t[0], to: t[1] }))
-      .filter(t => t.to > t.from);
-
     /* 順序有意義：後塗的蓋前塗的。
      * 坡先塗（面積最大），水坑與泥巴壓在上面，加速帶最後 ——
      * 這樣「坡上有個水坑」畫得出來，而加速帶永遠不會被別的東西蓋掉。 */
@@ -1172,8 +1125,6 @@
       boosts: boostList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
       water: waterList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
       slopes: slopeList,
-      tunnels: tunnelList,
-      inTunnel: tunnelMask(tunnelList, nodes.length),
       slopeAt: slopeMask(slopeList, nodes.length),
       signs: placeSigns({
         nodes: nodes, open: open, startNode: startNode,
@@ -1186,7 +1137,7 @@
         },
         /* def 自己寫死機制時 auto.curve 是空的，這裡補算一份 */
         curve: auto.curve || curvature(nodes, open),
-        tunnels: tunnelList, slopes: slopeList,
+        slopes: slopeList,
         water: waterList
       }),
       checkpoints: CHECKPOINTS,

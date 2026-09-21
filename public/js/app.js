@@ -459,7 +459,6 @@
     const me = myRacer();
     G.cam = { x: me.x, y: me.y, z: camView().height, a: me.angle, h: me.angle, fov: 1, ready: true };
     G.boostVis = 0;
-    G.tunnelVis = 0;
     G.swayRate = 0;
     G.camDist = 0;
     resize();
@@ -753,19 +752,6 @@
     const along = me.vx * Math.cos(G.cam.h) + me.vy * Math.sin(G.cam.h);
     G.camDist = (G.camDist || 0) + along * dt;
 
-    /* 隧道：進洞變暗、出洞回亮。用鏡頭的位置查節點，不是毛毛蟲的。
-     * 過渡要平滑 —— 節點是離散的，直接切會在洞口「啪」一下。 */
-    const tr = G.track;
-    let inside = 0;
-    if (tr && tr.inTunnel) {
-      /* 給 me.node 當起點：nodeAt 只搜尋提示附近的一段（-12～+45），
-       * 不給提示的話它從 0 開始找，鏡頭在賽道另一頭時就會查錯節點。
-       * 鏡頭在毛毛蟲後面約九個節點，落在 -12 的範圍內。 */
-      const cn = Tracks.nodeAt(tr, G.cam.x, G.cam.y, me.node);
-      if (cn >= 0) inside = tr.inTunnel[cn] ? 1 : 0;
-    }
-    const lerp = snapTo ? 1 : (inside ? 0.14 : 0.10);   /* 進洞快一點、出洞慢一點 */
-    G.tunnelVis = (G.tunnelVis || 0) + (inside - (G.tunnelVis || 0)) * lerp;
   }
 
   function draw() {
@@ -797,10 +783,6 @@
     }
     /* 坡上的人字箭頭要壓在路面上，所以等整條路都畫完才畫 */
     for (const face of road) if (face.chevron) face.chevron(ctx);
-    /* 隧道的牆與頂是立起來的，由遠到近畫（road 已經排序過）。
-     * 排在毛毛蟲前面：隧道裡的毛毛蟲要蓋在遠處的牆上面。 */
-    for (const face of road) if (face.tunnel) face.tunnel(ctx);
-
     R.drawFog(ctx, P, G.theme);
 
     /* 立起來的東西：場景物件、道具葉、毛毛蟲，一樣由遠到近。
@@ -875,14 +857,8 @@
 
     if (!G.lite) R.drawSpeedLines(ctx, P, G.boostVis || 0, st.t);
 
-    /* 轉動時壓暗邊緣：砍掉周邊視覺的流動，中間完全不動。
-     * 排在隧道壓暗前面，兩層疊起來（在隧道裡轉彎就是又暗又收邊）。 */
+    /* 轉動時壓暗邊緣：砍掉周邊視覺的流動，中間完全不動。 */
     R.drawSwayShade(ctx, P, G.swayRate || 0);
-
-    /* 隧道壓暗。看的是「鏡頭所在的節點」而不是毛毛蟲的 ——
-     * 鏡頭在毛毛蟲後面一百多單位，出洞的瞬間鏡頭還在洞裡，
-     * 用毛毛蟲的節點會讓畫面比鏡頭早半秒回亮，看起來像閃一下。 */
-    R.drawTunnelShade(ctx, P, G.theme, G.tunnelVis || 0);
 
     drawNameplates(ctx, P);
     drawMini();

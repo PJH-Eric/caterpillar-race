@@ -436,37 +436,6 @@
     ctx.restore();
   }
 
-  /**
-   * 進隧道壓暗、出隧道回亮。
-   *
-   * 畫在所有東西的最上面，是一層四角壓得比中間重的暗角 ——
-   * 平均壓暗整個畫面只會讓人覺得「螢幕變暗了」，
-   * 四角重、中間輕才讀得出「我在一個管子裡，光從前面來」。
-   *
-   * @param {number} k 0＝完全在洞外，1＝完全在洞裡（呼叫端自己做平滑）
-   */
-  function drawTunnelShade(ctx, P, theme, k) {
-    if (k <= 0.004) return;
-    const v = P.view;
-    const SC = surfaceColors(theme);
-    ctx.save();
-    /* 底色：整體壓一層，量不大 */
-    ctx.globalAlpha = 0.34 * k;
-    ctx.fillStyle = SC.roof;
-    ctx.fillRect(0, 0, v.w, v.h);
-    /* 暗角：中間留亮，越往外越重 */
-    const g = ctx.createRadialGradient(
-      v.w * 0.5, P.horizon + v.h * 0.06, Math.min(v.w, v.h) * 0.12,
-      v.w * 0.5, P.horizon + v.h * 0.06, Math.max(v.w, v.h) * 0.78);
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(0.55, 'rgba(0,0,0,0.28)');
-    g.addColorStop(1, 'rgba(0,0,0,0.72)');
-    ctx.globalAlpha = k;
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, v.w, v.h);
-    ctx.restore();
-  }
-
   /** 遠處霧化：地平線附近淡進天空色，遠方才不會是一堆銳利的小三角 */
   function drawFog(ctx, P, theme) {
     const v = P.view, hz = P.horizon;
@@ -488,7 +457,7 @@
 
   /* ---------- 新地形的配色 ----------
    *
-   * 水坑、上下坡、隧道的顏色不寫進 themes/tracks-art.js，而是從該主題原本的
+   * 水坑、上下坡的顏色不寫進 themes/tracks-art.js，而是從該主題原本的
    * 路面／岩石／天空色推出來。十二套主題乘五個顏色是六十個值，手挑一輪
    * 不但煩，而且熔岩、雪地、夜晚那幾套的色調差很多，挑不好就會有主題「破色」。
    * 推導出來的顏色一定跟該主題同調，之後新增主題也自動就有。
@@ -520,8 +489,6 @@
     const pick = (k, fallback) => (typeof theme[k] === 'string' ? theme[k] : fallback);
     const sky2 = pick('sky2', '#9fd8f5');
     const boost = pick('boost', '#bfefff');
-    const rock = pick('rock', road);
-    const rockDark = pick('rockDark', shade(road, -0.3));
     const roadEdge = pick('roadEdge', shade(road, 0.3));
     c = {
       /* 水：往主題的天空藍靠，但壓暗一點，才看得出是「積水」不是「亮片」 */
@@ -532,11 +499,7 @@
       slopeDown: theme.slopeDown || shade(road, 0.20),
       /* 箭頭用路面的對比色，才不會糊在路面裡 */
       slopeUpMark: theme.slopeUpMark || shade(road, -0.48),
-      slopeDownMark: theme.slopeDownMark || shade(roadEdge, 0.35),
-      /* 隧道：牆用岩石色壓暗，頂再更暗 */
-      wall: theme.wall || shade(rock, -0.30),
-      wallDark: theme.wallDark || shade(rockDark, -0.45),
-      roof: theme.roof || shade(rockDark, -0.66)
+      slopeDownMark: theme.slopeDownMark || shade(roadEdge, 0.35)
     };
     surfCache.set(theme, c);
     return c;
@@ -550,14 +513,8 @@
     return Math.abs(Math.atan2(a.tx * b.ty - a.ty * b.tx, a.tx * b.tx + a.ty * b.ty));
   }
 
-  /* 隧道的尺寸（世界單位）。牆站在路肩外一點，頂蓋住整個斷面。
-   * 淨高抓得比鏡頭高度（CAM_VIEWS.height 約 62）高一截，
-   * 不然鏡頭會穿過天花板，畫面上半就破了。 */
-  const TUNNEL_H = 96;
-  const TUNNEL_LIP = 14;
-
   function makeSegDraw(P, a, b, c, theme, band, corner, feat) {
-    feat = feat || { slope: 0, tunnel: 0 };
+    feat = feat || { slope: 0 };
     const SC = surfaceColors(theme);
     const dx = b.x - a.x, dy = b.y - a.y;
     const len = Math.hypot(dx, dy) || 1;
@@ -658,51 +615,12 @@
       ctx.restore();
     }
 
-    /**
-     * 隧道：兩側的牆與上面的頂。
-     *
-     * 投影本來就吃得下高度（P.pt 的第三個參數），所以牆就是「把路肩那條線
-     * 從 z=0 拉到 z=TUNNEL_H」的四邊形，頂是兩道牆頂端之間的蓋子。
-     * 畫的順序是牆→頂：頂會蓋住牆的上緣，接縫才不會露出草地的顏色。
-     */
-    function tunnel(ctx) {
-      if (!feat.tunnel) return;
-      const wa = a.w + TUNNEL_LIP, wb = b.w + TUNNEL_LIP;
-      const corners = [
-        [{ x: a.x + nx * wa, y: a.y + ny * wa }, { x: b.x + nx * wb, y: b.y + ny * wb }],
-        [{ x: a.x - nx * wa, y: a.y - ny * wa }, { x: b.x - nx * wb, y: b.y - ny * wb }]
-      ];
-      /* 側牆：左右兩片，右邊那片壓暗一點，看起來才有立體感 */
-      for (let k = 0; k < 2; k++) {
-        const lo = clipNear(P, [corners[k][0], corners[k][1]]);
-        if (lo.length < 2) continue;
-        const p0 = P.pt(lo[0].x, lo[0].y, 0), p1 = P.pt(lo[1].x, lo[1].y, 0);
-        const q0 = P.pt(lo[0].x, lo[0].y, TUNNEL_H), q1 = P.pt(lo[1].x, lo[1].y, TUNNEL_H);
-        ctx.fillStyle = k === 0 ? SC.wall : SC.wallDark;
-        ctx.beginPath();
-        ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
-        ctx.lineTo(q1.x, q1.y); ctx.lineTo(q0.x, q0.y);
-        ctx.closePath(); ctx.fill();
-      }
-      /* 頂：四個角都在 TUNNEL_H 上 */
-      const roof = clipNear(P, [corners[0][0], corners[0][1], corners[1][1], corners[1][0]]);
-      if (roof.length >= 3) {
-        const sp = roof.map(p => P.pt(p.x, p.y, TUNNEL_H));
-        ctx.fillStyle = SC.roof;
-        ctx.beginPath();
-        ctx.moveTo(sp[0].x, sp[0].y);
-        for (let i = 1; i < sp.length; i++) ctx.lineTo(sp[i].x, sp[i].y);
-        ctx.closePath(); ctx.fill();
-      }
-    }
-
     return {
-      edge, road, chevron, tunnel,
+      edge, road, chevron,
       draw(ctx) {
         edge(ctx);
         road(ctx);
         chevron(ctx);
-        tunnel(ctx);
       }
     };
   }
@@ -747,10 +665,9 @@
       if (outA && outB) continue;
 
       const C = nodes[wrap(fromNode + i + 2)];
-      /* 坡與隧道都是「一整段路」，所以問的是節點而不是座標 */
+      /* 坡是「一整段路」，所以問的是節點而不是座標 */
       const feat = {
-        slope: track.slopeAt ? track.slopeAt[ia] : 0,
-        tunnel: track.inTunnel ? track.inTunnel[ia] : 0
+        slope: track.slopeAt ? track.slopeAt[ia] : 0
       };
       const segment = makeSegDraw(P, A, B, C === B ? null : C, theme, Math.floor(ia / 5) % 2, curveAt(nodes, ia, 5, track.open) > 0.14, feat);
       out.push({
@@ -758,8 +675,7 @@
         draw: segment.draw,
         edge: segment.edge,
         road: segment.road,
-        chevron: segment.chevron,
-        tunnel: segment.tunnel
+        chevron: segment.chevron
       });
     }
   }
@@ -1109,43 +1025,6 @@
         ctx.bezierCurveTo(X(0.75), Y(-0.6), X(-0.3), Y(-0.55), X(-0.3), Y(-0.95));
         ctx.stroke();
         head(-0.3, -0.95, 0, -1);
-      } else if (kind === 'tunnel') {
-        /* 隧道：實心的洞口剪影。
-         *
-         * 原本畫的是線稿拱門（半圓＋兩腳＋地面線），牌子在遠處縮到十幾像素時
-         * 那幾條線糊成一團，看不出是什麼。改成實心的黑色洞口 ——
-         * 剪影在任何尺寸下都讀得出來，而且「山裡一個黑洞」的形狀很直覺。
-         *
-         * 畫法：外面一個實心的山形（圓頂的梯形），裡面挖一個小一號的
-         * 拱形黑洞。山用中灰、洞用全黑，兩層對比才看得出「洞」而不是一塊色塊。 */
-        const archTop = -0.62, base = 0.92;
-        /* 山體 */
-        ctx.fillStyle = '#2B2B2B';
-        ctx.beginPath();
-        ctx.moveTo(X(-1.02), Y(base));
-        ctx.lineTo(X(-0.86), Y(-0.16));
-        ctx.quadraticCurveTo(X(0), Y(archTop - 0.52), X(0.86), Y(-0.16));
-        ctx.lineTo(X(1.02), Y(base));
-        ctx.closePath();
-        ctx.fill();
-        /* 洞口：留一圈山體當邊框，所以比山體小一號 */
-        ctx.fillStyle = '#F7C93E';
-        ctx.beginPath();
-        ctx.moveTo(X(-0.46), Y(base));
-        ctx.lineTo(X(-0.46), Y(archTop + 0.24));
-        ctx.quadraticCurveTo(X(0), Y(archTop - 0.30), X(0.46), Y(archTop + 0.24));
-        ctx.lineTo(X(0.46), Y(base));
-        ctx.closePath();
-        ctx.fill();
-        /* 洞裡是暗的 */
-        ctx.fillStyle = '#2B2B2B';
-        ctx.beginPath();
-        ctx.moveTo(X(-0.30), Y(base));
-        ctx.lineTo(X(-0.30), Y(archTop + 0.34));
-        ctx.quadraticCurveTo(X(0), Y(archTop - 0.10), X(0.30), Y(archTop + 0.34));
-        ctx.lineTo(X(0.30), Y(base));
-        ctx.closePath();
-        ctx.fill();
       } else if (kind === 'up' || kind === 'down') {
         /* 坡：一個斜面三角形，上坡往右上、下坡往右下 */
         const up = kind === 'up';
@@ -1811,7 +1690,7 @@
     AHEAD_NODES, BEHIND_NODES,
     makeCanvas, projector, sampleTrail, wormSvg, segPattern,
     buildScenery, drawProp, drawLeaf, drawWorm3D, drawFace,
-    drawSky, drawGround, drawGroundBands, drawGroundTexture, drawFog, drawTunnelShade,
+    drawSky, drawGround, drawGroundBands, drawGroundTexture, drawFog,
     drawSwayShade, SWAY, drawSpeedLines, trackFaces, trackDecals, groundBlob, curveAt,
     CAM_YAW, stepCamYaw, HEAD_CAM, headCamYaw,
     surfaceColors, mix, shade
