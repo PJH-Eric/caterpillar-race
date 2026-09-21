@@ -270,7 +270,17 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
   ok('減速帶的路面色跟平路不一樣', same.length === 0, same.join(', '));
 
   const render = read('public/js/render.js');
-  ok('速度帶有獨立的牌面與地面繪製', /kind === 'boost'/.test(render) && /slowdowns/.test(render));
+  ok('速度帶有獨立的牌面與地面繪製', /kind === 'boost'/.test(render) && /speedBand/.test(render));
+  /* 速度帶要跟路面一樣投影到地面上畫成一條帶子。
+   * 用「投影中心點再畫壓扁橢圓」的話，離鏡頭近時壓扁比例接近 1，
+   * 整塊會立起來、箭頭看起來浮在半空中，寬度也跟實際生效範圍對不上。 */
+  ok('速度帶是投影到地面的帶子，不是螢幕上的橢圓',
+    /function speedBand/.test(render) && /clipNear\(P, \[/.test(render) &&
+    !/function speedPad/.test(render));
+  ok('速度帶的寬度跟 paintSpan 共用同一個常數',
+    /Tr\.SPAN_HALF/.test(render) && /SPAN_HALF/.test(read('public/js/tracks.js')));
+  ok('速度帶沿著整段畫，不是只畫中點一顆球',
+    /for \(const strip of track\.strips/.test(render));
   ok('水坑跟泥巴畫法不一樣（不然只是換色的泥巴）', /waterLip/.test(render));
 
   const app = read('public/js/app.js');

@@ -705,40 +705,109 @@
       });
       if (it) out.push(it);
     }
-    function speedPad(p, slow) {
+    /* 加速帶／減速帶實際生效的是「一整段路面」（tracks.js 的 paintSpan），不是一顆球。
+     *
+     * 以前用一顆大橢圓代表整段：橢圓是在螢幕上畫的，離鏡頭近時壓扁比例接近 1，
+     * 看起來就立了起來，上面那三個箭頭跟著變成浮在半空中的三角形；寬度也跟真正
+     * 會生效的範圍對不上。
+     *
+     * 現在跟路面一樣，一個節點一段、用世界座標算出四個角再投影 —— 一定是貼在
+     * 地上的，而且看到的範圍就是真的會生效的範圍（寬度共用 Tracks.SPAN_HALF）。 */
+    const Tr = root.Tracks;
+    const SPAN_HALF = (Tr && Tr.SPAN_HALF) || 0.62;
+    const STEP = (Tr && Tr.NODE_STEP) || 14;
+
+    function speedBand(strip) {
+      const slow = strip.kind === 'slow';
       const face = slow ? SC.slow : theme.boost;
       const lip = slow ? SC.slowLip : '#ffffff';
+      const arrow = slow ? '#8F4C44' : '#ffffff';
+      const nodes = track.nodes, n = nodes.length;
+      const count = Math.max(1, strip.to - strip.from);
+      const at = k => nodes[track.open
+        ? Math.max(0, Math.min(n - 1, strip.from + k))
+        : (((strip.from + k) % n) + n) % n];
+      /* 寬度公式跟 paintSpan 一模一樣（不收頭尾），邊界才會對得起來 */
+      const halfW = k => at(k).w * SPAN_HALF;
+
+      for (let k = 0; k < count; k++) {
+        const a = at(k), b = at(k + 1);
+        const fa = P.fwd(a.x, a.y), fb = P.fwd(b.x, b.y);
+        if (fa < NEAR && fb < NEAR) continue;
+        if (fa > FAR && fb > FAR) continue;
+        const wa = halfW(k), wb = halfW(k + 1);
+        const mid = (fa + fb) / 2;
+        /* 每一小段各自送進排序清單，遠近才會跟路面、泥巴一起排對 */
+        out.push({
+          f: mid,
+          draw: ctx => {
+            const poly = clipNear(P, [
+              { x: a.x + a.nx * wa, y: a.y + a.ny * wa },
+              { x: b.x + b.nx * wb, y: b.y + b.ny * wb },
+              { x: b.x - b.nx * wb, y: b.y - b.ny * wb },
+              { x: a.x - a.nx * wa, y: a.y - a.ny * wa }
+            ]);
+            if (poly.length < 3) return;
+            const pts = poly.map(q => P.pt(q.x, q.y, 0));
+            ctx.fillStyle = face;
+            ctx.beginPath();
+            ctx.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+            ctx.closePath(); ctx.fill();
+
+            /* 兩側的亮邊：讓人一眼看出帶子從哪裡到哪裡。
+             * 兩端都要在近平面前面才畫 —— 有一端在鏡頭後面的話投影會飛出去，
+             * 畫面上就會冒出一條穿過整個畫面的粗線。粗細也要夾住，
+             * 不然貼到鏡頭前的那一段會變成一片放射狀的楔形。 */
+            if (fa > NEAR && fb > NEAR) {
+              ctx.save();
+              ctx.globalAlpha = 0.75;
+              ctx.strokeStyle = lip;
+              ctx.lineWidth = Math.max(1, Math.min(7, 3 * P.pt(a.x, a.y, 0).s));
+              for (const side of [1, -1]) {
+                const p1 = P.pt(a.x + a.nx * wa * side, a.y + a.ny * wa * side, 0);
+                const p2 = P.pt(b.x + b.nx * wb * side, b.y + b.ny * wb * side, 0);
+                ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+              }
+              ctx.restore();
+            }
+
+            /* 箭頭：每隔幾個節點畫一個，一樣是地面座標 —— 加速帶朝前、減速帶朝後 */
+            if (k !== Math.floor(count / 2) || wa < 10 || fa <= NEAR) return;
+            ctx.save();
+            ctx.globalAlpha = 0.85;
+            ctx.fillStyle = arrow;
+            const L = Math.min(wa * 1.1, STEP * 1.6) * (slow ? -1 : 1);
+            const W = wa * 0.55;
+            const tri = [
+              { u: L, v: 0 }, { u: -L * 0.55, v: W }, { u: -L * 0.2, v: 0 }, { u: -L * 0.55, v: -W }
+            ].map(o => P.pt(a.x + a.tx * o.u + a.nx * o.v, a.y + a.ty * o.u + a.ny * o.v, 0));
+            ctx.beginPath();
+            ctx.moveTo(tri[0].x, tri[0].y);
+            for (let i = 1; i < tri.length; i++) ctx.lineTo(tri[i].x, tri[i].y);
+            ctx.closePath(); ctx.fill();
+            ctx.restore();
+          }
+        });
+      }
+    }
+
+    /* 手設的點狀加速帶（不是整段的那種）維持原本的圓形畫法 */
+    function boostDot(p) {
       const it = groundBlob(P, p.x, p.y, p.r, (ctx, x, y, rx, ry) => {
         const g = ctx.createRadialGradient(x, y, rx * 0.08, x, y, rx);
-        g.addColorStop(0, slow ? '#FFF8F3' : 'rgba(255,255,255,.95)');
-        g.addColorStop(0.42, face);
-        g.addColorStop(0.9, lip);
+        g.addColorStop(0, 'rgba(255,255,255,.95)');
+        g.addColorStop(0.42, theme.boost);
+        g.addColorStop(0.9, '#ffffff');
         g.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fill();
-        ctx.save();
-        ctx.strokeStyle = slow ? SC.slowLip : '#fff';
-        ctx.lineWidth = Math.max(1, rx * 0.055);
-        ctx.globalAlpha = 0.8;
-        ctx.beginPath(); ctx.ellipse(x, y, rx * 0.84, ry * 0.7, 0, 0, TAU); ctx.stroke();
-        ctx.fillStyle = slow ? '#8F4C44' : '#fff';
-        for (let k = 0; k < 3; k++) {
-          ctx.globalAlpha = 0.45 + k * 0.16;
-          const oy = y + (k - 1) * ry * 0.52;
-          const tip = slow ? 0.24 : -0.28;
-          ctx.beginPath();
-          ctx.moveTo(x - rx * 0.34, oy - ry * tip);
-          ctx.lineTo(x, oy + ry * tip);
-          ctx.lineTo(x + rx * 0.34, oy - ry * tip);
-          ctx.lineTo(x, oy);
-          ctx.closePath(); ctx.fill();
-        }
-        ctx.restore();
       });
       if (it) out.push(it);
     }
-    for (const p of track.boosts || []) speedPad(p, false);
-    for (const p of track.slowdowns || []) speedPad(p, true);
+
+    for (const p of track.boosts || []) if (!p.strip) boostDot(p);
+    for (const strip of track.strips || []) speedBand(strip);
     for (const g0 of state.goo) {
       const it = groundBlob(P, g0.x, g0.y, 24, (ctx, x, y, rx, ry) => {
         const gr = ctx.createRadialGradient(x, y, rx * 0.1, x, y, rx);

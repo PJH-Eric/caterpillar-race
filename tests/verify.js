@@ -247,7 +247,14 @@ group('三、油門與速度');
   /* 按住前進就是「基礎速度乘上腳下的地形係數」，沒有任何隱藏加成。
    * 不能直接比 BASE_SPEED —— 賽道上現在有速度帶與水坑，跑一百 tick 之後
    * 人在哪一種地形上是賽道決定的。 */
-  for (let i = 0; i < 90; i++) Rules.step(st, { a: { steer: 0, gas: 1, man: 1, use: false } });
+  for (let i = 0; i < 90; i++) {
+    /* 速度帶是「踩過去之後還會持續一段時間」的加成：帶子變短之後，人可能已經
+     * 離開帶子但加成還沒退。這一題只想量「腳下地形」的速度，所以把計時中的
+     * 加成與減速都清掉再量。 */
+    r.padUntil = 0; r.juiceUntil = 0; r.slowUntil = 0;
+    Rules.step(st, { a: { steer: 0, gas: 1, man: 1, use: false } });
+  }
+  r.padUntil = 0; r.juiceUntil = 0; r.slowUntil = 0;
   const surf = Rules.surfaceFor(st, r);
   const want = Rules.C.BASE_SPEED * Rules.C.SURFACE_SPEED[surf];
   ok('按住前進會加速到該地形的基礎速度', Math.abs(r.speed - want) < 3,

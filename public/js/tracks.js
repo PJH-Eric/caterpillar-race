@@ -300,17 +300,20 @@
    * @param {number} from 起始節點 index
    * @param {number} to   結束節點 index（可以超過 nodes.length，會繞回去）
    */
+  /* 加速帶／減速帶佔路面半寬的幾成。
+   * 以前是整個路寬（1.0）：畫面上看過去整條路都是貼紙，而且減速帶完全閃不掉。
+   * 收窄成一小塊之後兩邊都留得下車，要不要吃就變成走線的一部分。
+   * 畫面那邊（render.js 的速度帶）用的是同一個常數，看到的範圍＝真的會生效的範圍。 */
+  const SPAN_HALF = 0.17;
+
   function paintSpan(grid, nodes, from, to, surface) {
     const n = nodes.length;
     const count = Math.max(1, to - from);
-    const fade = Math.min(4, Math.floor(count / 4));
     for (let k = 0; k <= count; k++) {
       const i = ((from + k) % n + n) % n;
       const nd = nodes[i];
-      /* 頭尾收窄：坡的邊緣不要是一條直角的線 */
-      const edge = Math.min(k, count - k);
-      const shrink = fade > 0 && edge < fade ? 0.45 + 0.55 * (edge / fade) : 1;
-      const w = nd.w * shrink;
+      /* 不收頭尾：要的是一塊邊界清楚的小長方形，看得出來從哪裡開始、到哪裡結束 */
+      const w = nd.w * SPAN_HALF;
       const steps = Math.ceil(w / CELL) + 1;
       for (let s = -steps; s <= steps; s++) {
         const off = (s / steps) * w;
@@ -389,7 +392,8 @@
    */
   function findRun(curve, n, wantLen, open, taken, rng) {
     for (const shrink of [1, 0.75, 0.55, 0.4]) {
-      const len = Math.max(10, Math.round(wantLen * shrink));
+      /* 下限 4 個節點（約 56 單位）—— 速度帶是一小塊長方形，不是一整段路 */
+      const len = Math.max(4, Math.round(wantLen * shrink));
       for (const maxWorst of [0.30, 0.42, 0.58]) {
         const runs = straightRuns(curve, n, len, open, taken, maxWorst);
         if (!runs.length) continue;
@@ -432,9 +436,9 @@
       }
     }
 
-    /* 減速帶比加速帶稍長，讓玩家有時間看懂顏色並調整走線。 */
-    addStrips('slow', Math.max(2, Math.round(rng.range(2, 3 + scale * 2))), rng.range(14, 24));
-    addStrips('boost', Math.max(2, Math.round(rng.range(2, 3 + scale * 2))), rng.range(12, 20));
+    /* 減速帶比加速帶稍長一點點，讓玩家有時間看懂顏色並調整走線。 */
+    addStrips('slow', Math.max(2, Math.round(rng.range(2, 3 + scale * 2))), rng.range(7, 10));
+    addStrips('boost', Math.max(2, Math.round(rng.range(2, 3 + scale * 2))), rng.range(6, 9));
 
     /* --- 水坑：彎道出口最討厭，因為那裡最需要抓地力 --- */
     {
@@ -917,7 +921,7 @@
       const mid = nodes[midIndex];
       return {
         from: s.from, to: s.to, kind: s.kind,
-        x: mid.x, y: mid.y, r: Math.max(42, mid.w * 0.82), node: midIndex
+        x: mid.x, y: mid.y, r: Math.max(36, mid.w * SPAN_HALF), node: midIndex
       };
     });
     const boostList = authoredBoosts.concat(stripList
@@ -968,8 +972,12 @@
       rocks: placeRocks((def.rocks || []).map(r => [r[0] * grow, r[1] * grow, r[2]]), nodes, grid)
         .map(r => ({ x: r[0], y: r[1], r: r[2] })),
       mud: mudList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
-      boosts: boostList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
-      slowdowns: slowdownList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
+      /* strip: true ＝ 這一顆只是「整段速度帶」的代表點，畫面要畫成一條帶子，
+       * 不是一顆球（AI 與統計照舊只看 x/y/r） */
+      boosts: authoredBoosts.map(r => ({ x: r[0], y: r[1], r: r[2] }))
+        .concat(stripList.filter(s2 => s2.kind === 'boost')
+          .map(s2 => ({ x: s2.x, y: s2.y, r: s2.r, strip: true }))),
+      slowdowns: slowdownList.map(r => ({ x: r[0], y: r[1], r: r[2], strip: true })),
       water: waterList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
       strips: stripList,
       signs: placeSigns({
@@ -1899,7 +1907,7 @@
   }
 
   return {
-    SURFACE, SURFACE_MAX, CELL, NODE_STEP, CHECKPOINTS, START_STRAIGHT_NODES, START_LANE_GAP,
+    SURFACE, SURFACE_MAX, CELL, NODE_STEP, SPAN_HALF, CHECKPOINTS, START_STRAIGHT_NODES, START_LANE_GAP,
     SIGN_LEAD_TURN, SIGN_LEAD_FEATURE, SIGN_MIN_GAP,
     TRACKS, BY_ID, build, get, list, randomDef, SHAPES, SHAPE_NAME, GROUPS, groupOf,
     surfaceAt, nodeAt, checkpointOf, lateralOf, sample, addTangents, idx
