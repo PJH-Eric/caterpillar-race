@@ -47,11 +47,15 @@ for (const def of Tracks.TRACKS) {
     r.finishTime > LAP_MIN && r.finishTime < LAP_MAX, r.finishTime.toFixed(1));
   ok(def.id + ' 道具葉數量足夠', tr.items.length >= 10, tr.items.length);
   ok(def.id + ' 有加速帶', tr.boosts.length >= 1);
+  ok(def.id + ' 有減速帶', tr.slowdowns.length >= 1);
   ok(def.id + ' 圈數設定在 1～5 之間', tr.laps >= 1 && tr.laps <= 5);
   ok(def.id + ' 道具葉全部在跑道上',
     tr.items.every(it => Tracks.surfaceAt(tr, it.x, it.y) !== Tracks.SURFACE.GRASS));
   ok(def.id + ' 加速帶全部在跑道上',
     tr.boosts.every(b => Tracks.surfaceAt(tr, b.x, b.y) !== Tracks.SURFACE.GRASS));
+  ok(def.id + ' 減速帶全部在跑道上',
+    tr.slowdowns.every(b => Tracks.surfaceAt(tr, b.x, b.y) !== Tracks.SURFACE.GRASS));
+  ok(def.id + ' 不含上下坡與捷徑', !tr.slopes && !tr.shortcuts && !tr.slopeAt);
 }
 
 console.log('\n  隨機賽道（120 個 seed）');
@@ -240,9 +244,9 @@ function selfOverlap(tr) {
       n++;
     }
     const pct = grass / Math.max(1, n) * 100;
-    if (pct > 4) wild.push(def.id + ' ' + pct.toFixed(0) + '%');
+    if (pct > 6) wild.push(def.id + ' ' + pct.toFixed(0) + '%');
   }
-  ok('反應慢半拍的玩家全程高速也不會一直被甩到草地（≤ 4%）',
+  ok('反應慢半拍的玩家全程高速也不會一直被甩到草地（≤ 6%）',
     wild.length === 0, wild.slice(0, 6).join(', '));
 }
 

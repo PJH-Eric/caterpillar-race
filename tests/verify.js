@@ -245,7 +245,7 @@ group('三、油門與速度');
   run(st, 100);
   const r = st.racers[0];
   /* 按住前進就是「基礎速度乘上腳下的地形係數」，沒有任何隱藏加成。
-   * 不能直接比 BASE_SPEED —— 賽道上現在有上下坡與水坑，跑一百 tick 之後
+   * 不能直接比 BASE_SPEED —— 賽道上現在有速度帶與水坑，跑一百 tick 之後
    * 人在哪一種地形上是賽道決定的。 */
   for (let i = 0; i < 90; i++) Rules.step(st, { a: { steer: 0, gas: 1, man: 1, use: false } });
   const surf = Rules.surfaceFor(st, r);
@@ -264,9 +264,8 @@ group('三、油門與速度');
     Rules.step(st, { a: { steer: dir, gas: 1, man: 1, use: false } });
     peak = Math.max(peak, r.speed);
   }
-  /* 上限用下坡算：交替轉向只能證明「沒有多出速度」，
-   * 但人可能正好在下坡上，那本來就比基礎速度快。 */
-  const cap = Rules.C.BASE_SPEED * Rules.C.SURFACE_SPEED[Tracks.SURFACE.DOWN] + 1;
+  /* 上限用加速帶算：交替轉向只能證明「沒有多出速度」。 */
+  const cap = Rules.C.BASE_SPEED * (1 + Rules.C.MAX_BOOST) + 1;
   ok('左右交替按不會扭出額外速度', peak <= cap, peak.toFixed(1) + ' / 上限 ' + cap.toFixed(1));
   ok('沒有 wiggle 事件了', !st.events.some(e => e.type === 'wiggle'));
 }
@@ -471,27 +470,18 @@ group('七、重現性');
     snap.racers.every(r => 'rank' in r && 'lap' in r && 'item' in r));
 }
 
-group('八、賽道機制（水坑、上下坡、捷徑）');
+group('八、賽道機制（水坑、加速帶、減速帶）');
 {
   const S = Tracks.SURFACE;
   /* --- 地形係數的相對關係。數值可以調，關係不能壞掉。 --- */
   const SP = Rules.C.SURFACE_SPEED, GRIP = Rules.C.GRIP;
-  ok('上坡比平路慢', SP[S.UP] < SP[S.TRACK]);
-  ok('下坡比平路快', SP[S.DOWN] > SP[S.TRACK]);
+  ok('減速帶比平路慢，但比泥巴好過', SP[S.SLOW] < SP[S.TRACK] && SP[S.SLOW] > SP[S.MUD]);
   ok('水坑比平路慢，但比泥巴好過', SP[S.WATER] < SP[S.TRACK] && SP[S.WATER] > SP[S.MUD]);
-  /* 水坑的懲罰是「滑」不是「慢」——這一條壞掉的話水坑就只是換色的泥巴 */
   ok('水坑比泥巴滑很多', GRIP[S.WATER] > GRIP[S.MUD] * 3, GRIP[S.WATER] + ' vs ' + GRIP[S.MUD]);
   ok('水坑比草地還滑', GRIP[S.WATER] > GRIP[S.GRASS]);
-  ok('坡不改抓地力（坡就是純粹的速度）',
-    GRIP[S.UP] === GRIP[S.TRACK] && GRIP[S.DOWN] === GRIP[S.TRACK]);
+  ok('速度帶不改抓地力', GRIP[S.BOOST] === GRIP[S.TRACK] && GRIP[S.SLOW] === GRIP[S.TRACK]);
   ok('每一種地形都有速度係數與抓地力',
     Object.keys(S).every(k => SP[S[k]] !== undefined && GRIP[S[k]] !== undefined));
-
-  /* 一對等長的坡是淨扣時間的（調和平均 < 1）——
-   * 反過來的話「一直找坡跑」會比走正路快，賽道設計就毀了 */
-  const harmonic = 2 / (1 / SP[S.UP] + 1 / SP[S.DOWN]);
-  ok('一對上下坡跑起來是淨扣時間，不是免費加速', harmonic < 1,
-    '調和平均 ' + harmonic.toFixed(3));
 }
 {
   /* --- 真的把毛毛蟲放到各種地形上，看速度收斂到哪 --- */
@@ -508,8 +498,7 @@ group('八、賽道機制（水坑、上下坡、捷徑）');
     return r.speed;
   }
   const flat = cruiseOn(S.TRACK);
-  ok('上坡上真的開比較慢', cruiseOn(S.UP) < flat * 0.85, cruiseOn(S.UP).toFixed(0) + ' vs ' + flat.toFixed(0));
-  ok('下坡上真的開比較快', cruiseOn(S.DOWN) > flat * 1.15, cruiseOn(S.DOWN).toFixed(0) + ' vs ' + flat.toFixed(0));
+  ok('減速帶上真的開比較慢', cruiseOn(S.SLOW) < flat * 0.75, cruiseOn(S.SLOW).toFixed(0) + ' vs ' + flat.toFixed(0));
   ok('水坑裡開比較慢', cruiseOn(S.WATER) < flat * 0.8);
 }
 {
@@ -531,47 +520,28 @@ group('八、賽道機制（水坑、上下坡、捷徑）');
   ok('水坑有記進統計', st.racers[0].stats.splash > 1);
 }
 {
-  /* --- 每張賽道都要有機制，而且上下坡一定成對 --- */
-  const noFeature = [], unpaired = [], outOfRange = [];
+  /* --- 每張賽道都要有速度帶，且不再產生坡或捷徑 --- */
+  const noFeature = [], outOfRange = [], oldMechanism = [];
   for (const def of Tracks.TRACKS) {
     const t = Tracks.build(def);
-    const n = t.nodes.length;
-    if (!t.slopes.length && !t.water.length) noFeature.push(def.id);
-    const up = t.slopes.filter(s => s.dir > 0).length;
-    const down = t.slopes.filter(s => s.dir < 0).length;
-    if (up !== down) unpaired.push(def.id + '(' + up + '/' + down + ')');
-    /* 區間不能超出節點數 —— 衝刺賽道繞不回去，超出去就是畫在賽道外 */
-    for (const sp of t.slopes) {
-      if (t.open && (sp.from < 0 || sp.to >= n)) outOfRange.push(def.id);
+    if (!t.boosts.length || !t.slowdowns.length) noFeature.push(def.id);
+    for (const sp of t.strips) {
+      if (sp.from < 0 || sp.to <= sp.from || (t.open && sp.to > t.nodes.length)) outOfRange.push(def.id);
     }
+    if (t.slopes || t.shortcuts || t.slopeAt) oldMechanism.push(def.id);
   }
-  ok('每張賽道至少有一種機制', noFeature.length === 0, noFeature.join(', '));
-  ok('上下坡一定成對出現（不然一圈會淨加速或淨扣速）', unpaired.length === 0, unpaired.join(', '));
-  ok('衝刺賽道的坡不會超出賽道兩端', outOfRange.length === 0, outOfRange.join(', '));
+  ok('每張賽道都有加速帶與減速帶', noFeature.length === 0, noFeature.join(', '));
+  ok('速度帶區間都在賽道範圍內', outOfRange.length === 0, outOfRange.join(', '));
+  ok('賽道不再包含上下坡或捷徑機制', oldMechanism.length === 0, oldMechanism.join(', '));
 }
 {
   /* --- 同一個 seed 一定長出一樣的賽道（線上對戰兩邊要算出同一張） --- */
   const a = Tracks.get('random', 'same-seed');
   const b = Tracks.get('random', 'same-seed');
-  const key = t => JSON.stringify([t.slopes, t.water.map(w => [w.x | 0, w.y | 0]),
-    t.shortcuts.map(sc => [sc.from, sc.to])]);
+  const key = t => JSON.stringify([t.strips, t.slowdowns, t.water.map(w => [w.x | 0, w.y | 0])]);
   ok('同一個 seed 的機制佈局完全一樣', key(a) === key(b));
   const c = Tracks.get('random', 'other-seed');
   ok('不同 seed 的機制佈局不一樣', key(a) !== key(c));
-}
-{
-  /* --- 捷徑：一定要真的比較短，而且區間方向要對 --- */
-  const bad = [];
-  for (const def of Tracks.TRACKS) {
-    const t = Tracks.build(def);
-    for (const sc of t.shortcuts) {
-      const arc = (sc.to - sc.from) * Tracks.NODE_STEP;
-      const len = sc.nodes.length * Tracks.NODE_STEP;
-      if (len >= arc) bad.push(def.id + ' 捷徑不比正路短');
-      if (!(sc.to > sc.from)) bad.push(def.id + ' 捷徑的區間反了');
-    }
-  }
-  ok('每條捷徑都比它取代的那段正路短', bad.length === 0, bad.slice(0, 3).join('; '));
 }
 
 {
@@ -610,9 +580,9 @@ group('八、賽道機制（水坑、上下坡、捷徑）');
   ok('標誌間距大於彎道提前距離', Tracks.SIGN_MIN_GAP > Tracks.SIGN_LEAD_TURN,
     Tracks.SIGN_MIN_GAP + ' vs ' + Tracks.SIGN_LEAD_TURN);
 
-  /* 擠在一起時要留「不知道代價最大」的那一種：路型 > 水坑 > 坡。
+  /* 擠在一起時要留「不知道代價最大」的那一種：路型 > 水坑 > 減速帶。
    * 這條保證疏開不是隨便砍，而是有取捨的。 */
-  const RANK = ['sturn', 'left', 'right', 'water', 'up', 'down'];
+  const RANK = ['sturn', 'left', 'right', 'slow', 'water', 'boost'];
   const seen = {};
   for (const def of Tracks.TRACKS) {
     for (const sg of Tracks.build(def).signs) seen[sg.kind] = (seen[sg.kind] || 0) + 1;
@@ -656,7 +626,7 @@ group('九、城市賽道');
 
 group('十、交通標誌');
 {
-  const KINDS = ['left', 'right', 'sturn', 'up', 'down', 'water'];
+  const KINDS = ['left', 'right', 'sturn', 'boost', 'slow', 'water'];
   const seen = {}, problems = [];
   let total = 0, minPer = 1e9, maxPer = 0;
 
@@ -682,15 +652,6 @@ group('十、交通標誌');
       if (!(sg.node >= 0 && sg.node < n)) problems.push(def.id + ' 標誌的節點超出範圍');
     }
 
-    /* 坡的標誌不能立在「它要警告的那種坡」上面 —— 站在上坡上被告知前面有上坡
-     * 是沒有意義的。反過來「下坡預告立在上坡上」是對的：真實道路的陡降標誌
-     * 本來就立在爬坡快到頂的地方，所以只比同方向。 */
-    for (const sg of t.signs.filter(x => x.kind === 'up' || x.kind === 'down')) {
-      const want = sg.kind === 'up' ? 1 : -1;
-      if (t.slopeAt[sg.node] === want) {
-        problems.push(def.id + ' 的 ' + sg.kind + ' 標誌立在同方向的坡上');
-      }
-    }
   }
 
   ok('每張賽道都有交通標誌', minPer > 0, '最少的一張只有 ' + minPer + ' 塊');
@@ -709,7 +670,7 @@ group('十、交通標誌');
    * 所以那一條搬到 render-check，用 Render.projector 量畫面上的偏移。 */
   ok('每一種標誌都指得出方向或狀態',
     Tracks.TRACKS.every(def => Tracks.build(def).signs.every(sg =>
-      ['left', 'right', 'sturn', 'up', 'down', 'water'].indexOf(sg.kind) >= 0)));
+    ['left', 'right', 'sturn', 'boost', 'slow', 'water'].indexOf(sg.kind) >= 0)));
 }
 {
   /* 同一個 seed 的標誌要一模一樣（線上對戰兩邊看到的牌子必須相同） */
@@ -837,7 +798,7 @@ group('十三、速度顯示（km/h）');
   /* 讀數要落在賽車該有的範圍 —— 尺度訂錯的話會變成 5 km/h 或 500 km/h */
   const base = Rules.kmh(C.BASE_SPEED);
   ok('基礎速度的讀數像賽車（30～90 km/h）', base > 30 && base < 90, base.toFixed(0) + ' km/h');
-  const top = Rules.kmh(C.BASE_SPEED * (1 + C.MAX_BOOST) * C.SURFACE_SPEED[Tracks.SURFACE.DOWN]);
+  const top = Rules.kmh(C.BASE_SPEED * (1 + C.MAX_BOOST));
   ok('極速的讀數不誇張（90～200 km/h）', top > 90 && top < 200, top.toFixed(0) + ' km/h');
   ok('泥巴比跑道慢得看得出來',
     Rules.kmh(C.BASE_SPEED * C.SURFACE_SPEED[Tracks.SURFACE.MUD]) < base * 0.6);

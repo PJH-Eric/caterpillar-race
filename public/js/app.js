@@ -344,7 +344,7 @@
     baby: '幼幼班：電腦跑得慢、不會丟壞道具，你落後太多時還會放慢等你。',
     easy: '簡單：電腦會走賽道，但常常過彎過頭，道具也用得晚。',
     normal: '普通：電腦會走理想線、順路吃加速帶，道具用在該用的時候。',
-    hard: '困難：電腦幾乎不出錯，會抄內線、走捷徑、閃開黏液，加速帶一個也不放過。'
+    hard: '困難：電腦幾乎不出錯，會抄內線、閃開減速帶與黏液，加速帶一個也不放過。'
   };
   function refreshDiffHint() { $('diff-hint').textContent = DIFF_HINT[G.settings.difficulty] || ''; }
 
@@ -771,7 +771,7 @@
     R.drawGroundBands(ctx, P, G.theme, G.camDist || 0);
     if (!G.lite) R.drawGroundTexture(ctx, P, G.theme);
 
-    /* 地面：賽道分段 ＋ 泥巴／加速帶／黏液／終點線，一起由遠到近畫 */
+    /* 地面：賽道分段 ＋ 泥巴／速度帶／黏液／終點線，一起由遠到近畫 */
     const road = [];
     R.trackFaces(P, G.track, me.node, G.theme, road);
     R.trackDecals(P, G.track, G.theme, st, road);
@@ -781,8 +781,6 @@
       if (face.road) face.road(ctx);
       else face.draw(ctx);
     }
-    /* 坡上的人字箭頭要壓在路面上，所以等整條路都畫完才畫 */
-    for (const face of road) if (face.chevron) face.chevron(ctx);
     R.drawFog(ctx, P, G.theme);
 
     /* 立起來的東西：場景物件、道具葉、毛毛蟲，一樣由遠到近。
@@ -996,7 +994,7 @@
     ctx.beginPath();
     G.track.nodes.forEach((nd, i) => ctx[i ? 'lineTo' : 'moveTo'](nd.x, nd.y));
     /* 衝刺賽道是一條開放路徑，頭尾不相接 —— closePath 會憑空畫出一段
-     * 「從終點連回起點」的路，小地圖上看起來就多一條不存在的捷徑。 */
+     * 不存在的道路。 */
     if (!G.track.open) ctx.closePath();
     ctx.stroke();
     ctx.strokeStyle = G.theme.road; ctx.lineWidth = 44; ctx.stroke();
@@ -1335,6 +1333,7 @@
     const s = me.stats;
     const statsHtml =
       '<li>吃到加速帶<span>' + s.pads + ' 次</span></li>' +
+      '<li>踩到減速帶<span>' + (s.slowPads || 0) + ' 次</span></li>' +
       '<li>用掉道具<span>' + s.itemsUsed + ' 個（命中 ' + s.itemHits + '）</span></li>' +
       '<li>撞牆<span>' + s.hits + ' 次</span></li>' +
       '<li>跑到草地上<span>' + (s.offTrack / 30).toFixed(1) + ' 秒</span></li>' +

@@ -110,11 +110,12 @@
       aim = aim * 0.35 + lat * 0.65 * skill;
     }
 
-    /* 閃泥巴、水坑與黏液。
+    /* 閃泥巴、水坑、減速帶與黏液。
      * 水坑要閃得比泥巴更開（半徑多算三成）：泥巴只是慢，水坑會讓車滑出去，
      * 在彎道出口滑出去的代價比慢 0.2 秒大得多。 */
     const hazards = track.mud
       .concat((track.water || []).map(w => ({ x: w.x, y: w.y, r: w.r * 1.3 })))
+      .concat((track.slowdowns || []).map(s => ({ x: s.x, y: s.y, r: s.r * 0.9 })))
       .concat(state.goo.map(g => ({ x: g.x, y: g.y, r: 24 })));
     for (const h of hazards) {
       const dist = Math.hypot(h.x - nd.x, h.y - nd.y);
@@ -140,6 +141,10 @@
     if (!r.item) return false;
     if (state.t < b.useAt) return false;
     const id = r.item;
+
+    /* 高難度會更果斷地把手上的道具轉成優勢；保留少量亂數，避免每次
+     * 都在同一個 tick 使用而失去比賽節奏。 */
+    if (d.avoid > 0.6 && id !== 'tiny' && b.rng.next() < 0.03 + d.avoid * 0.03) return true;
 
     if (id === 'juice') {
       /* 直線或已經被拖慢時喝，笨一點的就隨便喝 */

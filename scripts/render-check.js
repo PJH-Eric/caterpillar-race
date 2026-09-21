@@ -257,36 +257,24 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
   const TrackArt = require('../public/js/themes/tracks-art.js');
   const themes = TrackArt.THEMES;
 
-  /* 每套主題都要推得出新地形的顏色，而且不能推成跟路面一樣（那就等於看不見） */
+  /* 每套主題都要推得出水坑與減速帶的顏色，而且不能推成跟路面一樣。 */
   const same = [], missing = [];
   for (const id in themes) {
     const c = Render.surfaceColors(themes[id]);
-    for (const k of ['water', 'waterLip', 'slopeUp', 'slopeDown']) {
+    for (const k of ['water', 'waterLip', 'slow', 'slowLip']) {
       if (!/^#[0-9a-f]{6}$/i.test(c[k] || '')) missing.push(id + '.' + k);
     }
-    if (c.slopeUp === themes[id].road || c.slopeDown === themes[id].road) same.push(id);
+    if (c.slow === themes[id].road) same.push(id);
   }
-  ok('每套主題都推得出新地形的顏色', missing.length === 0, missing.slice(0, 4).join(', '));
-  ok('上下坡的路面色跟平路不一樣（不然玩家看不出來是坡）', same.length === 0, same.join(', '));
-
-  /* 上坡要比平路暗、下坡要比平路亮 —— 這是玩家唯一的視覺線索 */
-  const lum = h => {
-    const [r, g, b] = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  };
-  let wrongWay = [];
-  for (const id in themes) {
-    const c = Render.surfaceColors(themes[id]);
-    if (!(lum(c.slopeUp) < lum(themes[id].road) && lum(c.slopeDown) > lum(themes[id].road))) wrongWay.push(id);
-  }
-  ok('上坡比平路暗、下坡比平路亮', wrongWay.length === 0, wrongWay.join(', '));
+  ok('每套主題都推得出速度帶顏色', missing.length === 0, missing.slice(0, 4).join(', '));
+  ok('減速帶的路面色跟平路不一樣', same.length === 0, same.join(', '));
 
   const render = read('public/js/render.js');
-  ok('坡上有人字箭頭', /function chevron/.test(render));
+  ok('速度帶有獨立的牌面與地面繪製', /kind === 'boost'/.test(render) && /slowdowns/.test(render));
   ok('水坑跟泥巴畫法不一樣（不然只是換色的泥巴）', /waterLip/.test(render));
 
   const app = read('public/js/app.js');
-  ok('箭頭有獨立的繪製階段', app.includes('face.chevron(ctx)'));
+  ok('速度帶由地面裝飾階段繪製', app.includes('R.trackDecals(P, G.track'));
 }
 
 /* ---------- 城市賽道的美術 ---------- */
@@ -312,7 +300,7 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
 {
   const TrackArt = require('../public/js/themes/tracks-art.js');
   const theme = TrackArt.THEMES.garden;
-  const KINDS = ['left', 'right', 'sturn', 'up', 'down', 'water'];
+  const KINDS = ['left', 'right', 'sturn', 'boost', 'slow', 'water'];
 
   /* 只量牌面上的圖示：桿子與牌框是對稱的，會把左右差異洗掉。
    * 第一次 stroke 是桿子、第二次是牌框，之後畫的才是圖示。 */
@@ -345,7 +333,7 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
     '左 ' + pics.left.cx.toFixed(1) + '／右 ' + pics.right.cx.toFixed(1));
   ok('左轉與右轉互為鏡像',
     Math.abs((400 - pics.left.cx) - (pics.right.cx - 400)) < 0.5);
-  ok('上坡與下坡的圖示不一樣', Math.abs(pics.up.cx - pics.down.cx) > 1);
+  ok('加速帶與減速帶的圖示不一樣', Math.abs(pics.boost.cx - pics.slow.cx) > 1 || Math.abs(pics.boost.cy - pics.slow.cy) > 1);
   ok('六種標誌的圖示兩兩都不同',
     new Set(KINDS.map(k => pics[k].cx.toFixed(2) + ',' + pics[k].cy.toFixed(2))).size === KINDS.length);
   /* 不認得的種類要有退路，不能什麼都不畫 */

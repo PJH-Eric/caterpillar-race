@@ -23,15 +23,14 @@
     GRASS: 0,   /* 賽道外的草地，可以走但很慢 */
     TRACK: 1,   /* 正常跑道 */
     MUD: 2,     /* 泥巴坑 */
-    BOOST: 3,   /* 露珠加速帶 */
+    BOOST: 3,   /* 加速帶 */
     WATER: 4,   /* 水坑：比泥巴好一點，但會打滑 */
-    UP: 5,      /* 上坡：慢下來 */
-    DOWN: 6     /* 下坡：衝快一點 */
+    SLOW: 5     /* 減速帶 */
   };
 
   /* 地形代碼會被存進 Uint8Array，也會被存檔與網路封包引用，所以只准往後加，
    * 不准調換既有的數字。 */
-  const SURFACE_MAX = 6;
+  const SURFACE_MAX = 5;
 
   /** 每格幾個世界單位。12 夠細（毛毛蟲寬 14），又不會讓網格太大。 */
   const CELL = 12;
@@ -54,7 +53,7 @@
   /**
    * 把控制點展開成密集點，再依距離重新取樣成等間距節點。
    * @param {Array<[number,number,number]>} ctrl 控制點 [x, y, 半寬]
-   * @param {boolean} closed 是否閉環（主賽道閉環，捷徑不閉環）
+   * @param {boolean} closed 是否閉環（主賽道閉環，衝刺賽道不閉環）
    */
   function sample(ctrl, closed) {
     const n = ctrl.length;
@@ -291,10 +290,10 @@
   }
 
   /**
-   * 把賽道的某一段整條塗成別的地形（上下坡用）。
+   * 把賽道的某一段整條塗成加速帶或減速帶。
    *
    * 跟 paintBlob 的差別是「一整段路」而不是「一個圓」——
-   * 坡是有長度的，塗成圓的話跑起來會像踩到一個點，不像在爬坡。
+   * 帶狀路面讓玩家從遠處就能讀出速度機制，也不會只在一個點突然變速。
    * 兩端各留一小段漸層（頭尾各 fade 個節點只塗中間一半寬），
    * 免得速度在邊界上一刀切。
    *
@@ -331,7 +330,7 @@
         const px = x + ix * CELL, py = y + iy * CELL;
         if (Math.hypot(px - x, py - y) > r) continue;
         const c = cellOf(grid, px, py);
-        /* 只在路面上塗（含坡），泥巴／水坑／加速帶都不會長到草地上 */
+        /* 只在路面上塗，泥巴／水坑／速度帶都不會長到草地上 */
         if (c >= 0 && grid.surface[c] !== SURFACE.GRASS) grid.surface[c] = surface;
       }
     }
@@ -339,14 +338,9 @@
 
   /* ---------- 賽道機制的自動佈局 ----------
    *
-   * 上下坡、水坑兩種都是「一段一段」或「一塊一塊」貼在賽道上的東西。
-   * 二十張手設賽道逐張挑節點 index 不但煩，而且賽道幾何一動就全錯，
-   * 所以改成從幾何算出來：直線段放坡，彎道出口放水坑。
-   *
-   * 全部走同一支 RNG（種子＝賽道 seed），所以：
-   *   - 同一張賽道每次開出來都一樣（線上對戰兩邊算出來的必須一致）
-   *   - 隨機賽道跟手設賽道共用同一套邏輯，不用寫兩份
-   * def 裡有寫死的 slopes／water 就以 def 為準，不自動放。
+   * 加速帶、減速帶與水坑都直接從幾何佈局，避免手設節點 index 隨著
+   * 賽道平滑、放大而失效。全部走同一支 RNG（種子＝賽道 seed），線上
+   * 對戰兩邊因此會得到完全相同的機制位置。
    */
 
   /** 每個節點附近的彎度（弧度）。越大越彎。 */
@@ -388,8 +382,8 @@
    * 找一段放得下的路，找不到就一路退讓：先縮短，再放寬彎度。
    *
    * 沒有這個退讓的話，糖果餅乾、雪地那種「整張都在轉」的賽道會一段都放不下，
-   * 玩起來就是「有些賽道有機制、有些完全沒有」。彎道裡的坡其實很好玩，
-   * 只是不能失去穩定性，所以放寬的是「平均多直」，上限（單點爆彎）還是擋著。
+   * 玩起來就是「有些賽道有機制、有些完全沒有」。速度帶可以比長直線短，
+   * 但仍優先放在穩定的路段，避免剛進彎就突然變速。
    *
    * @returns {{at:number, len:number}|null}
    */
@@ -412,54 +406,35 @@
   }
 
   /**
-   * 幫一張賽道排好上下坡、水坑。
-   * @param {object} opt { nodes, open, rng, startNode, boosts }
+   * 幫一張賽道排好加速帶、減速帶與水坑。
+   * @param {object} opt { nodes, open, rng, startNode }
    */
   function placeFeatures(opt) {
     const nodes = opt.nodes, n = nodes.length, open = opt.open, rng = opt.rng;
     const curve = curvature(nodes, open);
     const taken = new Uint8Array(n);
 
-    /* 起跑線前後淨空：開跑就撞進坡很莫名，而且會擋住起跑格 */
+    /* 起跑線前後淨空：開跑就踩到速度帶很莫名，而且會擋住起跑格 */
     markTaken(taken, n, opt.startNode - 14, 28, 0);
 
-    const slopes = [], water = [], shortcuts = [];
-    /* 賽道越長放越多，但都有上限 —— 一圈裡每種機制出現兩三次剛好，
+    const strips = [], water = [];
+    /* 賽道越長放越多，但都有上限 —— 一圈裡每種速度帶出現兩三次剛好，
      * 再多就變成「整張都是機制」，反而沒有記憶點。 */
     const scale = Math.min(1, n / 420);
 
-    /* --- 上下坡：成對放，先上後下 ---
-     * 成對是刻意的：一圈的淨高度必須是零，不然「一直下坡」就變成免費加速，
-     * 圈速會整個垮掉。上坡在前、下坡在後，跑起來就是爬上去再衝下來。 */
-    {
-      const pairs = Math.max(1, Math.round(rng.range(1, 1 + scale * 1.5)));
-      /* 一對放不下就換個地方再試。沒有這個重試的話，只要第一次抽到的上坡後面
-       * 剛好卡住，整張賽道就一個坡都沒有 —— 實測二十張裡有六張這樣。 */
-      for (let k = 0, tries = 0; k < pairs && tries < 8; tries++) {
-        const before = slopes.length;
-        const up = findRun(curve, n, rng.range(16, 28), open, taken, rng);
-        if (!up) break;
-        slopes.push([up.at, up.at + up.len, 1]);
-        markTaken(taken, n, up.at, up.len, 6);
-
-        /* 下坡擺在上坡後面一點點，中間隔一小段平路 */
-        const gap = Math.round(rng.range(6, 18));
-        const downLen = up.len;
-        const at = up.at + up.len + gap;
-        let clear = true;
-        for (let i = -4; i < downLen + 4; i++) if (taken[(((at + i) % n) + n) % n]) { clear = false; break; }
-        if (open && at + downLen >= n) clear = false;
-        if (clear) {
-          slopes.push([at, at + downLen, -1]);
-          markTaken(taken, n, at, downLen, 6);
-        } else {
-          /* 放不下就把上坡也收掉 —— 寧可沒有坡，也不要只有上坡（那就是純扣速度）。
-           * 佔位不還原：那個地方已經證實放不下一對，下一輪要換別的地方試。 */
-          slopes.pop();
-        }
-        if (slopes.length > before) k++;
+    function addStrips(kind, count, wantLen) {
+      for (let k = 0, tries = 0; k < count && tries < 12; tries++) {
+        const run = findRun(curve, n, wantLen, open, taken, rng);
+        if (!run) break;
+        strips.push({ from: run.at, to: run.at + run.len, kind: kind });
+        markTaken(taken, n, run.at, run.len, 7);
+        k++;
       }
     }
+
+    /* 減速帶比加速帶稍長，讓玩家有時間看懂顏色並調整走線。 */
+    addStrips('slow', Math.max(2, Math.round(rng.range(2, 3 + scale * 2))), rng.range(14, 24));
+    addStrips('boost', Math.max(2, Math.round(rng.range(2, 3 + scale * 2))), rng.range(12, 20));
 
     /* --- 水坑：彎道出口最討厭，因為那裡最需要抓地力 --- */
     {
@@ -482,76 +457,7 @@
       }
     }
 
-    /* --- 捷徑：抄掉一個大彎 ---
-     *
-     * 找一對節點 (i, j)：沿著賽道跑很遠，但直線距離很近 —— 那中間就是一個大彎，
-     * 從弦切過去就是捷徑。只在環形賽道上找（衝刺賽道抄捷徑會讓進度計算難算）。
-     *
-     * 要擋掉兩種爛捷徑：
-     *   1. 跟主賽道平行的（弦剛好貼著路邊跑）——那不是捷徑，只是把路加寬。
-     *      檢查弦的中點離主賽道夠不夠遠。
-     *   2. 太好賺的 —— 省掉半圈的話沒有人會走正路，賽道就沒意義了。
-     */
-    if (!open && n >= 200) {
-      const want = rng.chance(0.62) ? 1 : 0;
-      for (let k = 0; k < want; k++) {
-        const cand = [];
-        const minArc = Math.round(n * 0.16), maxArc = Math.round(n * 0.34);
-        for (let i = 0; i < n; i += 3) {
-          for (let arc = minArc; arc <= maxArc; arc += 4) {
-            const j = (i + arc) % n;
-            const a = nodes[i], b = nodes[j];
-            const chord = Math.hypot(b.x - a.x, b.y - a.y);
-            const along = arc * NODE_STEP;
-            if (chord > along * 0.60) continue;          /* 省得不夠多，不值得當捷徑 */
-            if (chord < (a.w + b.w) * 2.2) continue;     /* 太短，等於把兩段路黏在一起 */
-
-            /* 弦的中點要離主賽道夠遠，才不是「貼著路邊的第二條路」 */
-            const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-            let near = Infinity;
-            for (let q = 0; q < n; q += 2) {
-              const dx = nodes[q].x - mx, dy = nodes[q].y - my;
-              near = Math.min(near, Math.hypot(dx, dy));
-            }
-            if (near < a.w * 2.0) continue;
-
-            cand.push({ i: i, j: j, gain: along - chord, chord: chord });
-          }
-        }
-        if (!cand.length) break;
-        /* 省最多的那幾條裡抽一條 */
-        cand.sort((x, y) => y.gain - x.gain);
-        const pick = cand[rng.int(0, Math.min(cand.length - 1, 7))];
-        const a = nodes[pick.i], b = nodes[pick.j];
-
-        /* 控制點：兩端沿著賽道的切線方向拉出去一點，捷徑才會「順順地」接上主賽道，
-         * 而不是兩個直角。中間那點往弦的外側推一點點，跑起來才有弧度。 */
-        const w = Math.max(24, Math.min(a.w, b.w) * 0.52);
-        const out = pick.chord * 0.22;
-        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-        /* 往遠離主賽道中心的那一側推：賽道的重心大致在所有節點的平均 */
-        let cx = 0, cy = 0;
-        for (let q = 0; q < n; q++) { cx += nodes[q].x; cy += nodes[q].y; }
-        cx /= n; cy /= n;
-        const bulge = Math.hypot(mx - cx, my - cy) > 1e-3
-          ? { x: (mx - cx) / Math.hypot(mx - cx, my - cy), y: (my - cy) / Math.hypot(mx - cx, my - cy) }
-          : { x: 0, y: 0 };
-        const push = pick.chord * 0.06;
-
-        shortcuts.push({
-          from: pick.i, to: pick.i + ((pick.j - pick.i + n) % n),
-          ctrl: [
-            [a.x, a.y, w],
-            [a.x + a.tx * out, a.y + a.ty * out, w],
-            [mx + bulge.x * push, my + bulge.y * push, w],
-            [b.x - b.tx * out, b.y - b.ty * out, w],
-            [b.x, b.y, w]
-          ]
-        });
-      }
-    }
-
-    return { slopes, water, shortcuts, curve };
+    return { strips, water, curve };
   }
 
   /* ---------- 交通標誌 ----------
@@ -565,7 +471,7 @@
 
   /**
    * 標誌不是貼在事件前一個固定距離，而是留一段能看懂、能反應的時間。
-   * 轉彎需要提早選線；水坑與坡只要在進入前提醒即可。
+   * 轉彎需要提早選線；水坑與速度帶只要在進入前提醒即可。
    * 目前基礎速度 152、每節點 14 單位：轉彎約 2.2 秒，機制約 1.7 秒。
    */
   const SIGN_LEAD_TURN = 24;
@@ -588,13 +494,12 @@
    * 排序的依據是「不知道的話代價多大」：
    *   路型（連續彎、左右轉）走錯線最貴，而且是唯一沒看到牌子就完全猜不到的；
    *   水坑會讓車滑出去，但至少看得到地上有一塊亮的；
-   *   上下坡只是快慢，看不到也不會撞；
-   *   上下坡只影響速度，提示牌放在路邊讓玩家提早準備。
+   *   減速帶會直接拖慢速度，提示牌放在路邊讓玩家提早準備。
    */
-  const SIGN_RANK = ['sturn', 'left', 'right', 'turn', 'water', 'up', 'down'];
+  const SIGN_RANK = ['sturn', 'left', 'right', 'turn', 'slow', 'water', 'boost'];
 
   /**
-   * @param {object} opt { nodes, open, curve, startNode, slopes, water }
+   * @param {object} opt { nodes, open, curve, startNode, strips, water }
    * @returns {Array<{x:number, y:number, kind:string, node:number}>}
    */
   function placeSigns(opt) {
@@ -643,13 +548,9 @@
       }
     }
 
-    /* --- 機制的預告牌 --- */
-    /* 坡牌不能立在同方向的坡上
-     *（下坡預告立在上坡上是對的 —— 真實道路的陡降標誌就在爬坡快到頂的地方）。 */
-    const slopeOf = slopeMask(opt.slopes, n);
-    for (const sp of opt.slopes) {
-      const want = sp.dir > 0 ? 1 : -1;
-      put(sp.dir > 0 ? 'up' : 'down', sp.from - SIGN_LEAD_FEATURE, i => slopeOf[i] !== want);
+    /* --- 速度帶與水坑的預告牌 --- */
+    for (const strip of opt.strips || []) {
+      put(strip.kind, strip.from - SIGN_LEAD_FEATURE);
     }
     for (const w of opt.water) {
       /* 水坑是座標不是節點，先找它在哪一段路上 */
@@ -817,15 +718,6 @@
     return kept;
   }
 
-  /** 每個節點是上坡（+1）、下坡（-1）還是平路（0）。畫面用，物理一律查 grid。 */
-  function slopeMask(slopes, n) {
-    const mask = new Int8Array(n);
-    for (const s of slopes) {
-      for (let i = s.from; i <= s.to; i++) mask[((i % n) + n) % n] = s.dir;
-    }
-    return mask;
-  }
-
   /* ---------- 組裝一張賽道 ---------- */
 
   /**
@@ -852,7 +744,7 @@
     for (const k of ROAD_WIDE) {
       /* 最小寬度也由寬到窄試一輪：很窄的賽道套不上最寬的那個門檻，
        * 但套得上次一級的，總比直接掉回原寬好。
-       * 回傳的是「倍率 ＋ 當時用的門檻」，捷徑才能套一樣的規格。 */
+       * 回傳的是「倍率 ＋ 當時用的門檻」，機制座標才能跟著賽道一起放大。 */
       for (const floor of ROAD_MIN_FLOORS) {
         for (let i = 0; i < nodes.length; i++) nodes[i].w = Math.max(base[i] * k, floor);
         if (!selfOverlaps(nodes)) return { k: k, floor: floor };
@@ -957,61 +849,16 @@
     /* 起跑格的位置要先知道，機制佈局才躲得開起跑線 */
     const startNode = chooseStartNode(nodes, open, def.startNode);
 
-    /* def 機制都沒寫就自動佈局。有寫任何一種就整包以 def 為準 ——
-     * 半自動半手動的話，手設的那一種會被自動的那一種蓋掉，很難除錯。 */
-    const authored = !!(def.slopes || def.water);
-    const auto = authored ? { slopes: [], water: [], shortcuts: [] }
-      : placeFeatures({
-        nodes: nodes, open: open, startNode: startNode,
-        rng: RNG.create((def.seed || def.id || 'track') + ':feat')
-      });
-
-    /* 自動生的捷徑座標已經是最終座標（從 nodes 算出來的），
-     * 不能再乘 grow，也不用再 widenBy —— 寬度是算的時候就定好的。
-     * def 寫死的那些還是走原本的路徑（原始座標 ＋ grow ＋ widenBy）。 */
-    const shortcuts = (def.shortcuts || []).map(sc => ({
-      nodes: widenBy(addTangents(sample(
-        grow === 1 ? sc.ctrl : sc.ctrl.map(p => [p[0] * grow, p[1] * grow, p[2]]), false), false), wideK),
-      /* 捷徑接回主賽道的節點 index，用來讓進度計算不會倒退 */
-      from: sc.from, to: sc.to
-    })).concat((def.shortcuts ? [] : auto.shortcuts || []).map(sc => ({
-      nodes: addTangents(sample(sc.ctrl, false), false),
-      from: sc.from, to: sc.to
-    })));
-
-    /* 捷徑的 from／to 一律從幾何重算，不信 def 裡寫的。
-     *
-     * 理由跟 mud／boost 走 ontoRoad 一樣：賽道會被 fitWiden／GROW 放大、
-     * 急彎會被抹平，手寫的節點 index 對不上實際幾何。實測三條手設捷徑
-     * 全都寫錯 —— 宣稱取代 336 單位的正路，本身卻有 966 單位長，
-     * 也就是「捷徑」其實比正路遠，而且進度對應被壓縮成三分之一。
-     *
-     * 重算法：捷徑頭尾各找主賽道上最近的節點。to 一定要在 from 前面（沿賽道方向），
-     * 繞回去的那一邊才是它真正取代的區間。 */
-    for (const sc of shortcuts) {
-      const n = nodes.length;
-      const near = (x, y) => {
-        let best = -1, bd = Infinity;
-        for (let i = 0; i < n; i++) {
-          const dx = nodes[i].x - x, dy = nodes[i].y - y;
-          const d = dx * dx + dy * dy;
-          if (d < bd) { bd = d; best = i; }
-        }
-        return best;
-      };
-      const head = sc.nodes[0], tail = sc.nodes[sc.nodes.length - 1];
-      const a0 = near(head.x, head.y), b0 = near(tail.x, tail.y);
-      if (a0 < 0 || b0 < 0) continue;
-      /* 沿賽道方向從 a0 走到 b0 要幾步（環形就繞回去） */
-      const span = open ? (b0 - a0) : (((b0 - a0) % n) + n) % n;
-      if (span <= 0) continue;
-      sc.from = a0;
-      sc.to = a0 + span;
-    }
+    /* 速度機制一律由幾何自動佈局；舊資料裡若還留著 slopes／shortcuts
+     * 欄位也刻意忽略，避免已移除的玩法被帶回來。 */
+    const auto = placeFeatures({
+      nodes: nodes, open: open, startNode: startNode,
+      rng: RNG.create((def.seed || def.id || 'track') + ':feat')
+    });
 
     /* 世界範圍：所有節點外擴一段草地 */
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    const all = nodes.concat(...shortcuts.map(s => s.nodes));
+    const all = nodes;
     for (const nd of all) {
       minX = Math.min(minX, nd.x - nd.w); maxX = Math.max(maxX, nd.x + nd.w);
       minY = Math.min(minY, nd.y - nd.w); maxY = Math.max(maxY, nd.y + nd.w);
@@ -1021,7 +868,6 @@
 
     const grid = makeGrid(bounds);
     paintRibbon(grid, nodes, SURFACE.TRACK, true);
-    for (const sc of shortcuts) paintRibbon(grid, sc.nodes, SURFACE.TRACK, false);
     /* 加速帶與泥巴的座標是寫死的；賽道幾何一調整（放大、抹平急彎）就可能被甩到
      * 路肩外面。統一拉回最近的那段路面上，位置感覺一樣，但永遠不會掉到草地。 */
     const ontoRoad = (x, y) => {
@@ -1045,7 +891,7 @@
       const p2 = ontoRoad(m[0] * grow, m[1] * grow);
       return [p2[0], p2[1], m[2]];
     });
-    const boostList = (def.boosts || []).map(b => {
+    const authoredBoosts = (def.boosts || []).map(b => {
       const p2 = ontoRoad(b[0] * grow, b[1] * grow);
       return [p2[0], p2[1], b[2]];
     });
@@ -1054,36 +900,30 @@
       return [p2[0], p2[1], w[2]];
     });
 
-    /* 上下坡是「一段路」不是「一個點」，所以用節點區間描述。
-     * 節點是等間距取樣出來的（NODE_STEP），所以 to - from 就是坡的長度。
-     * 賽道會因為 fitWiden／GROW 被放大，但節點 index 不會跟著變，
-     * 所以坡的位置不用像 mud／boost 那樣拉回路面上。 */
-    const slopeList = (def.slopes || auto.slopes)
-      .map(s => ({ from: s[0], to: s[1], dir: s[2] > 0 ? 1 : -1 }))
-      .filter(s => s.to > s.from);
-
-    /* 順序有意義：後塗的蓋前塗的。
-     * 坡先塗（面積最大），水坑與泥巴壓在上面，加速帶最後 ——
-     * 這樣「坡上有個水坑」畫得出來，而加速帶永遠不會被別的東西蓋掉。 */
-    for (const s of slopeList) paintSpan(grid, nodes, s.from, s.to, s.dir > 0 ? SURFACE.UP : SURFACE.DOWN);
+    /* 速度帶先鋪在路面上，水坑與泥巴再壓在上面；手設加速點最後畫，
+     * 確保既有的發光加速帶不會被其他地形蓋掉。 */
+    for (const s of auto.strips) paintSpan(grid, nodes, s.from, s.to,
+      s.kind === 'boost' ? SURFACE.BOOST : SURFACE.SLOW);
     for (const w of waterList) paintBlob(grid, w[0], w[1], w[2], SURFACE.WATER);
     for (const m of mudList) paintBlob(grid, m[0], m[1], m[2], SURFACE.MUD);
-    for (const b of boostList) paintBlob(grid, b[0], b[1], b[2], SURFACE.BOOST);
+    for (const b of authoredBoosts) paintBlob(grid, b[0], b[1], b[2], SURFACE.BOOST);
 
-    /* 捷徑格子的節點 index：借用它接回主賽道的區間，進度才不會因為抄捷徑爆掉 */
-    for (const sc of shortcuts) {
-      for (let i = 0; i < sc.nodes.length; i++) {
-        const k = i / Math.max(1, sc.nodes.length - 1);
-        const idx = Math.round(sc.from + (sc.to - sc.from) * k);
-        const nd = sc.nodes[i];
-        const steps = Math.ceil(nd.w / CELL) + 1;
-        for (let s = -steps; s <= steps; s++) {
-          const off = (s / steps) * nd.w;
-          const c = cellOf(grid, nd.x + nd.nx * off, nd.y + nd.ny * off);
-          if (c >= 0 && grid.node[c] < 0) grid.node[c] = ((idx % nodes.length) + nodes.length) % nodes.length;
-        }
-      }
-    }
+    /* 把帶狀機制轉成中心點，給畫面、AI 與統計使用；實際速度仍由上面的
+     * paintSpan 決定，所以玩家踩到整段帶都會有一致效果。 */
+    const stripList = auto.strips.map(s => {
+      const midIndex = open
+        ? Math.min(nodes.length - 1, Math.floor((s.from + s.to) / 2))
+        : ((Math.floor((s.from + s.to) / 2) % nodes.length) + nodes.length) % nodes.length;
+      const mid = nodes[midIndex];
+      return {
+        from: s.from, to: s.to, kind: s.kind,
+        x: mid.x, y: mid.y, r: Math.max(42, mid.w * 0.82), node: midIndex
+      };
+    });
+    const boostList = authoredBoosts.concat(stripList
+      .filter(s => s.kind === 'boost').map(s => [s.x, s.y, s.r]));
+    const slowdownList = stripList
+      .filter(s => s.kind === 'slow').map(s => [s.x, s.y, s.r]);
 
     /* 道具葉：沿賽道等距擺，左右交錯，用 seed 決定橫向偏移 */
     const rng = RNG.create(def.seed || def.id || 'track');
@@ -1124,26 +964,26 @@
       laps: def.laps || 3,
       random: !!def.random,
       seed: def.seed || def.id,
-      nodes, shortcuts, grid, bounds, items, starts, startNode,
+      nodes, grid, bounds, items, starts, startNode,
       rocks: placeRocks((def.rocks || []).map(r => [r[0] * grow, r[1] * grow, r[2]]), nodes, grid)
         .map(r => ({ x: r[0], y: r[1], r: r[2] })),
       mud: mudList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
       boosts: boostList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
+      slowdowns: slowdownList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
       water: waterList.map(r => ({ x: r[0], y: r[1], r: r[2] })),
-      slopes: slopeList,
-      slopeAt: slopeMask(slopeList, nodes.length),
+      strips: stripList,
       signs: placeSigns({
         nodes: nodes, open: open, startNode: startNode,
-        /* 牌子只能立在草地上。grid 這時已經塗好了（含捷徑），所以查得到。 */
+        /* 牌子只能立在草地上。grid 這時已經塗好了，所以查得到。 */
         isClear: (x, y) => {
           if (x < bounds.minX + 20 || x > bounds.maxX - 20) return false;
           if (y < bounds.minY + 20 || y > bounds.maxY - 20) return false;
           const c = cellOf(grid, x, y);
           return c >= 0 && grid.surface[c] === SURFACE.GRASS;
         },
-        /* def 自己寫死機制時 auto.curve 是空的，這裡補算一份 */
+        /* 曲線由幾何計算，速度帶與水坑的位置則來自同一個 seed。 */
         curve: auto.curve || curvature(nodes, open),
-        slopes: slopeList,
+        strips: stripList,
         water: waterList
       }),
       checkpoints: CHECKPOINTS,
@@ -1171,7 +1011,7 @@
    *
    * 所以進度一律改用「從上次位置往前後找最近的」。窗口刻意做成前多後少：
    * 往前 45（最快也才 1.2 個節點／tick，夠用）、往後 12（允許小幅倒退但不會跳到對面），
-   * 這樣 index 是連續且單調的，抄捷徑時也會平順地推進。
+   * 這樣 index 是連續且單調的，沿主賽道跑時也會平順地推進。
    */
   function nodeAt(track, x, y, lastIndex) {
     const nodes = track.nodes, n = nodes.length;
@@ -1255,16 +1095,12 @@
     },
     {
       id: 'branch', name: '大樹枝幹', theme: 'branch', stars: 3, laps: 2,
-      desc: '在樹枝上跑，路面很窄，掉下去就得在葉子上慢慢爬回來。',
+      desc: '在樹枝上跑，路面很窄，加速帶與減速帶交錯，走線要穩。',
       startNode: 0, itemCount: 10,
       ctrl: [
         [-30, -560, 58], [280, -480, 54], [470, -250, 50], [430, 60, 48],
         [560, 290, 52], [330, 470, 54], [10, 420, 50], [-260, 500, 52],
         [-500, 340, 50], [-440, 60, 48], [-560, -190, 52], [-360, -450, 56]
-      ],
-      shortcuts: [
-        /* 樹枝之間的捷徑：很窄，但少繞一大圈 */
-        { from: 26, to: 50, ctrl: [[470, -250, 32], [330, -60, 28], [330, 200, 28], [330, 470, 32]] }
       ],
       boosts: [[470, -130, 42], [-160, 440, 44], [-500, 150, 40]],
       mud: [[10, 420, 40], [-440, 60, 38]],
@@ -1321,17 +1157,13 @@
     },
     {
       id: 'shroom', name: '夜光蘑菇', theme: 'shroom', stars: 4, laps: 2,
-      desc: '夜裡的蘑菇森林，彎急、捷徑多，是最難的一張。',
+      desc: '夜裡的蘑菇森林，彎急、速度帶密集，是最難的一張。',
       startNode: 0, itemCount: 13,
       ctrl: [
         [-60, -560, 56], [230, -520, 54], [340, -320, 50], [200, -140, 46],
         [420, -40, 50], [560, 170, 54], [360, 400, 54], [60, 430, 50],
         [-120, 300, 46], [-300, 460, 52], [-560, 330, 54], [-520, 60, 50],
         [-330, -80, 46], [-480, -280, 52], [-360, -520, 56]
-      ],
-      shortcuts: [
-        { from: 10, to: 34, ctrl: [[230, -520, 26], [440, -400, 24], [500, -170, 24], [560, 170, 28]] },
-        { from: 58, to: 80, ctrl: [[60, 430, 26], [-180, 470, 24], [-420, 430, 26], [-560, 330, 28]] }
       ],
       boosts: [[300, -420, 40], [480, 60, 42], [-560, 190, 40], [-420, -400, 38]],
       mud: [[200, -140, 38], [-120, 300, 38], [-330, -80, 36]],
@@ -1764,7 +1596,7 @@
    *   peanut   啞鈴：兩個大圓弧中間收一個窄腰
    *   snake    蛇行長條：拉長的橢圓上疊正弦波，連續左右彎
    *
-   * 五種都是「不自交的閉曲線」—— 計圈、格子索引、捷徑都建立在這個前提上，
+   * 五種都是「不自交的閉曲線」—— 計圈與格子索引都建立在這個前提上，
    * 真的畫成 8 字會讓同一格對到兩個節點 index，圈數就毀了。
    */
   const SHAPES = ['circuit', 'circuit', 'circuit', 'hairpin', 'hairpin', 'snake', 'kidney', 'peanut', 'boxy', 'blob'];

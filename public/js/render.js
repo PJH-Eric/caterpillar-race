@@ -457,7 +457,7 @@
 
   /* ---------- 新地形的配色 ----------
    *
-   * 水坑、上下坡的顏色不寫進 themes/tracks-art.js，而是從該主題原本的
+   * 水坑、減速帶的顏色不寫進 themes/tracks-art.js，而是從該主題原本的
    * 路面／岩石／天空色推出來。十二套主題乘五個顏色是六十個值，手挑一輪
    * 不但煩，而且熔岩、雪地、夜晚那幾套的色調差很多，挑不好就會有主題「破色」。
    * 推導出來的顏色一定跟該主題同調，之後新增主題也自動就有。
@@ -489,17 +489,15 @@
     const pick = (k, fallback) => (typeof theme[k] === 'string' ? theme[k] : fallback);
     const sky2 = pick('sky2', '#9fd8f5');
     const boost = pick('boost', '#bfefff');
+    const slow = pick('slow', '#ffc7b5');
     const roadEdge = pick('roadEdge', shade(road, 0.3));
     c = {
       /* 水：往主題的天空藍靠，但壓暗一點，才看得出是「積水」不是「亮片」 */
       water: theme.water || mix(shade(road, -0.35), sky2, 0.72),
       waterLip: theme.waterLip || mix(boost, '#ffffff', 0.35),
-      /* 上坡壓暗、下坡提亮：坡面迎光背光的直覺，不用真的做高度就讀得出來 */
-      slopeUp: theme.slopeUp || shade(road, -0.22),
-      slopeDown: theme.slopeDown || shade(road, 0.20),
-      /* 箭頭用路面的對比色，才不會糊在路面裡 */
-      slopeUpMark: theme.slopeUpMark || shade(road, -0.48),
-      slopeDownMark: theme.slopeDownMark || shade(roadEdge, 0.35)
+      /* 減速帶用暖色，跟冷色的加速帶一眼區分 */
+      slow: slow,
+      slowLip: pick('slowLip', mix(slow, '#ffffff', 0.35))
     };
     surfCache.set(theme, c);
     return c;
@@ -514,7 +512,7 @@
   }
 
   function makeSegDraw(P, a, b, c, theme, band, corner, feat) {
-    feat = feat || { slope: 0 };
+    feat = feat || {};
     const SC = surfaceColors(theme);
     const dx = b.x - a.x, dy = b.y - a.y;
     const len = Math.hypot(dx, dy) || 1;
@@ -576,47 +574,12 @@
     }
 
     function road(ctx) {
-      /* 坡直接換路面色 —— 這是玩家唯一會注意到的提示，不能只靠箭頭，
-       * 箭頭在遠處會小到看不見。 */
-      const fill = feat.slope > 0 ? SC.slopeUp : (feat.slope < 0 ? SC.slopeDown : theme.road);
-      quad(ctx, 0, fill);
-      join(ctx, 0, fill);
-    }
-
-    /**
-     * 坡上的人字箭頭：上坡朝前（要爬上去），下坡也朝前（衝下去），
-     * 用顏色跟開口方向區分 —— 上坡是暗色的「∧」，下坡是亮色的「∨」。
-     */
-    function chevron(ctx) {
-      if (!feat.slope) return;
-      const fa = P.fwd(a.x, a.y);
-      if (fa < NEAR || fa > 900) return;              /* 太遠畫了也看不見，純浪費 */
-      const up = feat.slope > 0;
-      const w = a.w * 0.34;
-      const tip = up ? 1 : -1;                        /* ∧ 或 ∨ */
-      const pts = [
-        { x: a.x - nx * w - dx * 0.30 * tip, y: a.y - ny * w - dy * 0.30 * tip },
-        { x: a.x + dx * 0.34 * tip, y: a.y + dy * 0.34 * tip },
-        { x: a.x + nx * w - dx * 0.30 * tip, y: a.y + ny * w - dy * 0.30 * tip }
-      ];
-      const clipped = clipNear(P, pts);
-      if (clipped.length < 3) return;
-      const sp = clipped.map(p => P.pt(p.x, p.y, 0));
-      ctx.save();
-      ctx.globalAlpha = 0.55;
-      ctx.strokeStyle = up ? SC.slopeUpMark : SC.slopeDownMark;
-      ctx.lineWidth = Math.max(1.5, 7 * sp[1].s);
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(sp[0].x, sp[0].y);
-      for (let i = 1; i < sp.length; i++) ctx.lineTo(sp[i].x, sp[i].y);
-      ctx.stroke();
-      ctx.restore();
+      quad(ctx, 0, theme.road);
+      join(ctx, 0, theme.road);
     }
 
     return {
-      edge, road, chevron,
+      edge, road,
       draw(ctx) {
         edge(ctx);
         road(ctx);
@@ -665,17 +628,12 @@
       if (outA && outB) continue;
 
       const C = nodes[wrap(fromNode + i + 2)];
-      /* 坡是「一整段路」，所以問的是節點而不是座標 */
-      const feat = {
-        slope: track.slopeAt ? track.slopeAt[ia] : 0
-      };
-      const segment = makeSegDraw(P, A, B, C === B ? null : C, theme, Math.floor(ia / 5) % 2, curveAt(nodes, ia, 5, track.open) > 0.14, feat);
+      const segment = makeSegDraw(P, A, B, C === B ? null : C, theme, Math.floor(ia / 5) % 2, curveAt(nodes, ia, 5, track.open) > 0.14);
       out.push({
         f: (fa + fb) / 2,
         draw: segment.draw,
         edge: segment.edge,
-        road: segment.road,
-        chevron: segment.chevron
+        road: segment.road
       });
     }
   }
@@ -747,23 +705,31 @@
       });
       if (it) out.push(it);
     }
-    for (const p of track.boosts) {
+    function speedPad(p, slow) {
+      const face = slow ? SC.slow : theme.boost;
+      const lip = slow ? SC.slowLip : '#ffffff';
       const it = groundBlob(P, p.x, p.y, p.r, (ctx, x, y, rx, ry) => {
         const g = ctx.createRadialGradient(x, y, rx * 0.08, x, y, rx);
-        g.addColorStop(0, 'rgba(255,255,255,.95)');
-        g.addColorStop(0.42, theme.boost);
+        g.addColorStop(0, slow ? '#FFF8F3' : 'rgba(255,255,255,.95)');
+        g.addColorStop(0.42, face);
+        g.addColorStop(0.9, lip);
         g.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fill();
         ctx.save();
-        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = slow ? SC.slowLip : '#fff';
+        ctx.lineWidth = Math.max(1, rx * 0.055);
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath(); ctx.ellipse(x, y, rx * 0.84, ry * 0.7, 0, 0, TAU); ctx.stroke();
+        ctx.fillStyle = slow ? '#8F4C44' : '#fff';
         for (let k = 0; k < 3; k++) {
-          ctx.globalAlpha = 0.35 + k * 0.2;
+          ctx.globalAlpha = 0.45 + k * 0.16;
           const oy = y + (k - 1) * ry * 0.52;
+          const tip = slow ? 0.24 : -0.28;
           ctx.beginPath();
-          ctx.moveTo(x - rx * 0.34, oy + ry * 0.2);
-          ctx.lineTo(x, oy - ry * 0.28);
-          ctx.lineTo(x + rx * 0.34, oy + ry * 0.2);
+          ctx.moveTo(x - rx * 0.34, oy - ry * tip);
+          ctx.lineTo(x, oy + ry * tip);
+          ctx.lineTo(x + rx * 0.34, oy - ry * tip);
           ctx.lineTo(x, oy);
           ctx.closePath(); ctx.fill();
         }
@@ -771,6 +737,8 @@
       });
       if (it) out.push(it);
     }
+    for (const p of track.boosts || []) speedPad(p, false);
+    for (const p of track.slowdowns || []) speedPad(p, true);
     for (const g0 of state.goo) {
       const it = groundBlob(P, g0.x, g0.y, 24, (ctx, x, y, rx, ry) => {
         const gr = ctx.createRadialGradient(x, y, rx * 0.1, x, y, rx);
@@ -877,8 +845,8 @@
     left: Object.freeze({ face: '#FFE08A', edge: '#D8932F', hi: '#FFF8D8' }),
     right: Object.freeze({ face: '#FFC4A3', edge: '#D46A4F', hi: '#FFF0E3' }),
     sturn: Object.freeze({ face: '#D8C7FF', edge: '#8466C6', hi: '#F4EEFF' }),
-    up: Object.freeze({ face: '#A9DFFF', edge: '#478DBA', hi: '#EBFAFF' }),
-    down: Object.freeze({ face: '#B8E7C0', edge: '#4E9A64', hi: '#F1FFF3' }),
+    boost: Object.freeze({ face: '#A9E8FF', edge: '#3B94C5', hi: '#EDFBFF' }),
+    slow: Object.freeze({ face: '#FFC5B2', edge: '#C85A4C', hi: '#FFF1EC' }),
     water: Object.freeze({ face: '#9DE7E0', edge: '#369A96', hi: '#EDFFFC' })
   });
 
@@ -1067,15 +1035,22 @@
         ctx.bezierCurveTo(X(0.75), Y(-0.6), X(-0.3), Y(-0.55), X(-0.3), Y(-0.95));
         ctx.stroke();
         head(-0.3, -0.95, 0, -1);
-      } else if (kind === 'up' || kind === 'down') {
-        /* 坡：一個斜面三角形，上坡往右上、下坡往右下 */
-        const up = kind === 'up';
-        ctx.beginPath();
-        ctx.moveTo(X(-0.9), Y(0.7));
-        ctx.lineTo(X(0.9), Y(0.7));
-        ctx.lineTo(X(up ? 0.9 : -0.9), Y(-0.75));
-        ctx.closePath();
-        ctx.fill();
+      } else if (kind === 'boost' || kind === 'slow') {
+        /* 速度帶：加速箭頭朝前，減速帶用三條橫槓表示踩上去會拖慢。 */
+        if (kind === 'boost') {
+          for (let i = -1; i <= 1; i++) {
+            const y0 = i * 0.45;
+            poly([[-0.72, y0 + 0.18], [0.08, y0 + 0.18], [0.08, y0 + 0.38]]);
+            head(0.72, y0, 1, 0);
+          }
+        } else {
+          for (let i = -1; i <= 1; i++) {
+            ctx.beginPath();
+            ctx.moveTo(X(-0.72), Y(i * 0.42));
+            ctx.lineTo(X(0.72), Y(i * 0.42));
+            ctx.stroke();
+          }
+        }
       } else if (kind === 'water') {
         /* 水：三條波浪 */
         for (let i = 0; i < 3; i++) {
