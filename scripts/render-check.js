@@ -434,7 +434,9 @@ ok('畫面跟不上時會自動關掉純裝飾的特效', /updateQuality/.test(a
 
   const render = read('public/js/render.js');
   ok('標誌牌面正面朝鏡頭（轉過去斜看就只剩一條線）', /billboard/.test(render));
-  ok('標誌太遠就不畫圖示（只剩一塊黃菱形）', /r < 7/.test(render));
+  ok('標誌太遠就不畫圖示（只剩彩色牌面）', /r < 7/.test(render));
+  ok('標誌有類型配色、雙層邊框與反光', /SIGN_PALETTE/.test(render) &&
+    /createLinearGradient/.test(render) && /fillRect\(bx - r/.test(render));
   ok('標誌會跟著景物一起由遠到近畫', /kind: 'sign'/.test(render));
 }
 

@@ -605,6 +605,10 @@ group('八、賽道機制（水坑、上下坡、捷徑）');
   ok('任兩塊牌子都隔得夠開（含環形賽道的頭尾）', tooClose.length === 0,
     tooClose.length + ' 對太近：' + tooClose.slice(0, 3).join('; '));
   ok('最近的兩塊也隔得夠開', minGap >= GAP, '最近 ' + minGap + ' 個節點');
+  ok('彎道標誌比地形標誌更早出現', Tracks.SIGN_LEAD_TURN > Tracks.SIGN_LEAD_FEATURE,
+    Tracks.SIGN_LEAD_TURN + ' vs ' + Tracks.SIGN_LEAD_FEATURE);
+  ok('標誌間距大於彎道提前距離', Tracks.SIGN_MIN_GAP > Tracks.SIGN_LEAD_TURN,
+    Tracks.SIGN_MIN_GAP + ' vs ' + Tracks.SIGN_LEAD_TURN);
 
   /* 擠在一起時要留「不知道代價最大」的那一種：路型 > 水坑 > 坡。
    * 這條保證疏開不是隨便砍，而是有取捨的。 */

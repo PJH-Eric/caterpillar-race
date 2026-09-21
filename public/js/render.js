@@ -873,6 +873,15 @@
     return out;
   }
 
+  const SIGN_PALETTE = Object.freeze({
+    left: Object.freeze({ face: '#FFE08A', edge: '#D8932F', hi: '#FFF8D8' }),
+    right: Object.freeze({ face: '#FFC4A3', edge: '#D46A4F', hi: '#FFF0E3' }),
+    sturn: Object.freeze({ face: '#D8C7FF', edge: '#8466C6', hi: '#F4EEFF' }),
+    up: Object.freeze({ face: '#A9DFFF', edge: '#478DBA', hi: '#EBFAFF' }),
+    down: Object.freeze({ face: '#B8E7C0', edge: '#4E9A64', hi: '#F1FFF3' }),
+    water: Object.freeze({ face: '#9DE7E0', edge: '#369A96', hi: '#EDFFFC' })
+  });
+
   function drawProp(ctx, prop, bx, by, s, theme, t) {
     const k = prop.kind;
     const H = u => u * prop.h * s;
@@ -947,7 +956,7 @@
       return;
     }
 
-    /* 交通標誌：一根桿子 ＋ 菱形警告牌 ＋ 圖示。
+    /* 交通標誌：一根桿子 ＋ 彩色菱形警告牌 ＋ 圖示。
      *
      * 圖示全部用線條畫在一個正規化的 -1..1 方框裡，再乘上牌子的半徑 ——
      * 這樣同一組座標在遠近任何距離都對，不用為每個距離調一次。
@@ -955,41 +964,74 @@
      * 真的把牌子轉向的話，斜著看就只剩一條線，那塊牌子就白立了。 */
     if (k === 'sign') {
       const kind = prop.sign || 'left';
-      const postH = H(52);
-      const r = W(26);                      /* 牌子的半徑（菱形的對角線一半） */
-      shadow(W(9), W(3.5));
+      const palette = SIGN_PALETTE[kind] || SIGN_PALETTE.left;
+      const postH = H(56);
+      const r = W(28);                      /* 牌子的半徑（菱形的對角線一半） */
+      shadow(W(11), W(4));
 
-      /* 桿子 */
-      ctx.strokeStyle = '#8A9199';
-      ctx.lineWidth = Math.max(1.2, W(4));
+      /* 桿子：深色外框加暖色內芯，縮小後仍然看得出立在路邊 */
+      ctx.strokeStyle = '#755B4A';
+      ctx.lineWidth = Math.max(1.8, W(6));
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(bx, by);
       ctx.lineTo(bx, by - postH);
       ctx.stroke();
+      ctx.strokeStyle = '#F3D7A5';
+      ctx.lineWidth = Math.max(1, W(2));
+      ctx.beginPath();
+      ctx.moveTo(bx, by - W(2));
+      ctx.lineTo(bx, by - postH);
+      ctx.stroke();
+      ctx.fillStyle = palette.edge;
+      ctx.beginPath();
+      ctx.ellipse(bx, by - W(1), W(9), W(3.2), 0, 0, TAU);
+      ctx.fill();
 
       const cy = by - postH - r * 0.92;
 
-      /* 菱形牌面：黃底黑框，看板的通用語言 */
-      ctx.beginPath();
-      ctx.moveTo(bx, cy - r);
-      ctx.lineTo(bx + r, cy);
-      ctx.lineTo(bx, cy + r);
-      ctx.lineTo(bx - r, cy);
-      ctx.closePath();
-      ctx.fillStyle = '#F7C93E';
-      ctx.fill();
-      ctx.strokeStyle = '#2B2B2B';
-      ctx.lineWidth = Math.max(1, r * 0.13);
-      ctx.stroke();
+      function diamond(radius, y) {
+        ctx.beginPath();
+        ctx.moveTo(bx, y - radius);
+        ctx.lineTo(bx + radius, y);
+        ctx.lineTo(bx, y + radius);
+        ctx.lineTo(bx - radius, y);
+        ctx.closePath();
+      }
 
-      if (r < 7) return;                    /* 太遠就只剩一塊黃菱形，圖示畫了也看不到 */
+      /* 雙層牌面：外圈是各種類型的識別色，內圈用柔和漸層提高可讀性 */
+      diamond(r * 1.15, cy + W(2));
+      ctx.fillStyle = 'rgba(55, 40, 30, 0.22)';
+      ctx.fill();
+      diamond(r * 1.08, cy);
+      ctx.fillStyle = palette.edge;
+      ctx.fill();
+      diamond(r * 0.94, cy);
+      const face = ctx.createLinearGradient(bx - r, cy - r, bx + r, cy + r);
+      face.addColorStop(0, palette.hi);
+      face.addColorStop(0.5, palette.face);
+      face.addColorStop(1, palette.edge);
+      ctx.fillStyle = face;
+      ctx.fill();
+      ctx.strokeStyle = '#FFFDF3';
+      ctx.lineWidth = Math.max(1, r * 0.06);
+      ctx.stroke();
+      /* 左上反光，讓牌面在遠處也有一個穩定的亮點 */
+      ctx.save();
+      ctx.globalAlpha = 0.65;
+      ctx.fillStyle = palette.hi;
+      ctx.fillRect(bx - r * 0.28, cy - r * 0.48, Math.max(1, r * 0.22), Math.max(1, r * 0.08));
+      ctx.restore();
+
+      /* 圖示框仍維持正面朝鏡頭，不讓牌面旋轉後變成一條線 */
+
+      if (r < 7) return;                    /* 太遠就只剩彩色牌面，圖示畫了也看不到 */
 
       /* 圖示：座標是 -1..1，乘 r * 0.52 之後畫 */
       const u = r * 0.52;
       const X = a => bx + a * u, Y = a => cy + a * u;
-      ctx.strokeStyle = '#2B2B2B';
-      ctx.fillStyle = '#2B2B2B';
+      ctx.strokeStyle = '#3E3540';
+      ctx.fillStyle = '#3E3540';
       ctx.lineWidth = Math.max(1, r * 0.15);
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';

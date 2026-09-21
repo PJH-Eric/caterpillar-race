@@ -563,13 +563,19 @@
    * 而且賽道一改標誌就跟著改，不會指錯方向。
    */
 
-  /** 標誌擺在機制／彎道前面幾個節點（14 單位一個節點，約兩秒的反應時間） */
-  const SIGN_LEAD = 20;
+  /**
+   * 標誌不是貼在事件前一個固定距離，而是留一段能看懂、能反應的時間。
+   * 轉彎需要提早選線；水坑與坡只要在進入前提醒即可。
+   * 目前基礎速度 152、每節點 14 單位：轉彎約 2.2 秒，機制約 1.7 秒。
+   */
+  const SIGN_LEAD_TURN = 24;
+  const SIGN_LEAD_FEATURE = 18;
+  const SIGN_MAX_BACKTRACK = 8;
   /** 同一種標誌至少要隔這麼多節點，才不會連續插一排一樣的牌子 */
   const SIGN_SPACING = 24;
   /**
    * 任意兩塊牌子（不分種類）至少要隔這麼多節點。
-   * 28 個節點約 390 單位，以基礎速度 150 跑過去約 2.6 秒 ——
+   * 28 個節點約 390 單位，以基礎速度 152 跑過去約 2.6 秒 ——
    * 一塊牌子看完、反應完，才輪到下一塊。
    *
    * 沒有這條的話只有「同種類」之間有間距，不同種類會疊在一起：
@@ -610,7 +616,7 @@
       let at2 = at;
       if (okNode) {
         let found = false;
-        for (let back = 0; back <= 16; back++) {
+        for (let back = 0; back <= SIGN_MAX_BACKTRACK; back++) {
           if (okNode(wrap(at - back))) { at2 = at - back; found = true; break; }
         }
         if (!found) return;
@@ -643,7 +649,7 @@
     const slopeOf = slopeMask(opt.slopes, n);
     for (const sp of opt.slopes) {
       const want = sp.dir > 0 ? 1 : -1;
-      put(sp.dir > 0 ? 'up' : 'down', sp.from - SIGN_LEAD, i => slopeOf[i] !== want);
+      put(sp.dir > 0 ? 'up' : 'down', sp.from - SIGN_LEAD_FEATURE, i => slopeOf[i] !== want);
     }
     for (const w of opt.water) {
       /* 水坑是座標不是節點，先找它在哪一段路上 */
@@ -653,7 +659,7 @@
         const d = dx * dx + dy * dy;
         if (d < bd) { bd = d; best = i; }
       }
-      if (best >= 0) put('water', best - SIGN_LEAD);
+      if (best >= 0) put('water', best - SIGN_LEAD_FEATURE);
     }
 
     /**
@@ -738,13 +744,13 @@
       const gap = ((b.from - a.to + n) % n);
       if (b.dir !== a.dir && gap <= 10) {
         paired[k] = 1; paired[(k + 1) % real.length] = 1;
-        put('sturn', a.from - SIGN_LEAD);
+        put('sturn', a.from - SIGN_LEAD_TURN);
       }
     }
     for (let k = 0; k < real.length; k++) {
       if (paired[k]) continue;
       /* 先立一塊「轉彎」，左右等牌子的位置定下來再算 */
-      put('turn', real[k].from - SIGN_LEAD);
+      put('turn', real[k].from - SIGN_LEAD_TURN);
     }
 
     /* 轉彎牌的左右，統一從牌子最後站的位置往前量 ——
@@ -2062,6 +2068,7 @@
 
   return {
     SURFACE, SURFACE_MAX, CELL, NODE_STEP, CHECKPOINTS, START_STRAIGHT_NODES, START_LANE_GAP,
+    SIGN_LEAD_TURN, SIGN_LEAD_FEATURE, SIGN_MIN_GAP,
     TRACKS, BY_ID, build, get, list, randomDef, SHAPES, SHAPE_NAME, GROUPS, groupOf,
     surfaceAt, nodeAt, checkpointOf, lateralOf, sample, addTangents, idx
   };
