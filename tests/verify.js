@@ -67,6 +67,8 @@ group('一、賽道幾何');
 
 for (const def of Tracks.TRACKS) {
   const tr = Tracks.build(def);
+  ok(def.id + ' 加速來源只有帶狀路面，沒有露珠加速點',
+    tr.boosts.length > 0 && tr.boosts.every(b => b.strip === true));
   let onTrack = 0;
   for (const nd of tr.nodes) if (Tracks.surfaceAt(tr, nd.x, nd.y) !== Tracks.SURFACE.GRASS) onTrack++;
   ok(def.id + ' 中心線整條都在跑道上', onTrack === tr.nodes.length, onTrack + '/' + tr.nodes.length);

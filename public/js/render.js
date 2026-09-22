@@ -792,21 +792,6 @@
       }
     }
 
-    /* 手設的點狀加速帶（不是整段的那種）維持原本的圓形畫法 */
-    function boostDot(p) {
-      const it = groundBlob(P, p.x, p.y, p.r, (ctx, x, y, rx, ry) => {
-        const g = ctx.createRadialGradient(x, y, rx * 0.08, x, y, rx);
-        g.addColorStop(0, 'rgba(255,255,255,.95)');
-        g.addColorStop(0.42, theme.boost);
-        g.addColorStop(0.9, '#ffffff');
-        g.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fill();
-      });
-      if (it) out.push(it);
-    }
-
-    for (const p of track.boosts || []) if (!p.strip) boostDot(p);
     for (const strip of track.strips || []) speedBand(strip);
     for (const g0 of state.goo) {
       const it = groundBlob(P, g0.x, g0.y, 24, (ctx, x, y, rx, ry) => {
