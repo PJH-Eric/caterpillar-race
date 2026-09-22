@@ -109,7 +109,7 @@
   const DIFFICULTY = {
     baby:   { id: 'baby',   name: '幼幼班', cap: 0.78, lineErr: 0.55, react: 2.2, avoid: 0.0,  useBad: false, mercy: true },
     easy:   { id: 'easy',   name: '簡單',   cap: 0.86, lineErr: 0.34, react: 1.2, avoid: 0.15, useBad: true,  mercy: false },
-    normal: { id: 'normal', name: '普通',   cap: 0.95, lineErr: 0.16, react: 0.5, avoid: 0.55, useBad: true,  mercy: false },
+    normal: { id: 'normal', name: '普通',   cap: 0.99, lineErr: 0.16, react: 0.5, avoid: 0.55, useBad: true,  mercy: false },
     hard:   { id: 'hard',   name: '困難',   cap: 1.00, lineErr: 0.10, react: 0.15, avoid: 0.90, useBad: true,  mercy: false }
   };
   const DIFFICULTY_LIST = ['baby', 'easy', 'normal', 'hard'];
