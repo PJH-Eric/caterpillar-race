@@ -47,17 +47,25 @@
 
       sock.onopen = () => {
         open = true; retry = 0;
+        const me = sock;
+        if (root.NetworkLatency) root.NetworkLatency.setProbe(() => {
+          if (sock === me && me.readyState === WebSocket.OPEN) me.send(JSON.stringify({ type: 'ping', t: performance.now() }));
+        });
         emit('status', { state: 'online' });
       };
       sock.onmessage = ev => {
         let msg = null;
         try { msg = JSON.parse(ev.data); } catch (e) { return; }
+        if (msg.type === 'pong' && typeof msg.t === 'number' && root.NetworkLatency) {
+          root.NetworkLatency.report(performance.now() - msg.t);
+        }
         if (msg.type === 'snap') applySnapshot(msg);
         emit(msg.type, msg);
         emit('*', msg);
       };
       sock.onclose = () => {
         open = false;
+        if (root.NetworkLatency) root.NetworkLatency.report(null);
         if (closedByUs) { emit('status', { state: 'closed' }); return; }
         emit('status', { state: 'lost' });
         scheduleRetry(url);

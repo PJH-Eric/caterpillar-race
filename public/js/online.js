@@ -414,6 +414,7 @@
     });
 
     O.inRace = true;
+    if (root.NetworkLatency) root.NetworkLatency.setActive(true);
     O.unread = 0;
     $('chat-unread').hidden = true;
     $('chat-panel').hidden = true;
@@ -427,6 +428,7 @@
 
   function onOver(m) {
     O.inRace = false;
+    if (root.NetworkLatency) root.NetworkLatency.setActive(false);
     O.net.detach();
     if (App.G.state && App.G.mode === 'online') {
       /* 名次與時間以伺服器為準，不要用本地預測的結果 */
@@ -475,6 +477,7 @@
     }
     O.room = null;
     O.inRace = false;
+    if (root.NetworkLatency) root.NetworkLatency.setActive(false);
     O.status = 'idle';
   }
 
